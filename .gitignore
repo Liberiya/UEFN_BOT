@@ -1,0 +1,4 @@
+﻿.env
+.venv/
+bot_state.json
+bot_subs.json
