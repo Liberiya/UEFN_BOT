@@ -288,11 +288,24 @@ class FortniteGGCreativeScraper:
 
         # Stats
         stats_overview: Dict[str, str] = {}
+        # Overview cards
         for box in soup.select(".stats-overview-box"):
             title = get_text(box.select_one(".stats-overview-title"))
             number = get_text(box.select_one(".stats-overview-number"))
             if title:
                 stats_overview[title] = number or ""
+        # Island details table: e.g., Release Date, Last Update, Created In
+        try:
+            for tr in soup.select(".island-table tr"):
+                tds = tr.select("td")
+                if len(tds) >= 2:
+                    k = get_text(tds[0]) or ""
+                    v = get_text(tds[1]) or ""
+                    k = k.rstrip(":")
+                    if k:
+                        stats_overview[k] = v
+        except Exception:
+            pass
 
         players_now_text = get_text(soup.select_one(".js-players-now"))
         peak_24h_text = get_text(soup.select_one(".js-24h-peak"))

@@ -265,11 +265,39 @@ async def send_map_card(target_message, ident: str):
     p24 = esc(p24_raw)
     ap = esc(ap_raw)
     tags = ", ".join(det.tags or [])
+    # Try to display last updated and release date info from stats overview
+    upd_text = None
+    rel_text = None
+    try:
+        so = getattr(det, 'stats_overview', {}) or {}
+        # Updated
+        for k, v in so.items():
+            if isinstance(k, str) and ('updated' in k.lower() or 'update' in k.lower()):
+                upd_text = v
+                break
+        # Release Date
+        for k, v in so.items():
+            if isinstance(k, str) and 'release' in k.lower():
+                rel_text = v
+                break
+    except Exception:
+        upd_text = None
+        rel_text = None
+
     lines = [f"<b>{name}</b>", f"<code>{esc(code)}</code>", f"\U0001F465 Players: {pn}"]
     if re.search(r"\d", p24_raw or ""):
         lines.append(f"\U0001F4C8 24h Peak: {p24}")
     lines.append(f"\U0001F3C6 All-time Peak: {ap}")
     lines.append(f"\U0001F3F7\uFE0F Tags: {esc(tags)}")
+    # Separate block: Updated / Release Date on a new line below
+    if upd_text or rel_text:
+        lines.append("")
+        parts = []
+        if upd_text:
+            parts.append(f"\u23F2\uFE0F Updated: {esc(str(upd_text))}")
+        if rel_text:
+            parts.append(f"\U0001F4C5 Release Date: {esc(str(rel_text))}")
+        lines.append("  |  ".join(parts))
     text = "\n".join(lines)
     url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
     qcode = up.quote(code, safe='')
@@ -277,7 +305,8 @@ async def send_map_card(target_message, ident: str):
         [InlineKeyboardButton("\U0001F310 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043d\u0430 Fortnite.GG", url=url), InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
         [InlineKeyboardButton("\U0001F514 50", callback_data=f"alert_map:{qcode}:50"), InlineKeyboardButton("\U0001F514 100", callback_data=f"alert_map:{qcode}:100"), InlineKeyboardButton("\U0001F514 500", callback_data=f"alert_map:{qcode}:500"), InlineKeyboardButton("\U0001F514 1000", callback_data=f"alert_map:{qcode}:1000")],
         [InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_map_custom:{qcode}")],
-        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044f", callback_data="nav_home")],
+        [InlineKeyboardButton("\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0442\u044c \u043a\u0430\u0436\u0434\u044b\u0435 4 \u0434\u043d\u044f", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041e\u0431\u043d\u043e\u0432\u0438\u043b", callback_data=f"updmark:{qcode}")],
+        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(det, 'image', None))
 
@@ -430,7 +459,41 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = up.unquote(name_enc)
         await q.answer()
         await send_one(q.message, text=f"\u0412\u0432\u0435\u0434\u0438\u0442\u0435: /alertc_add {name} <\u043f\u043e\u0440\u043e\u0433>", reply_markup=home_kb())
+        return
 
+    # Map update reminder callbacks
+    if data.startswith("updremind:"):
+        _, code_enc, days = data.split(":", 2)
+        code = up.unquote(code_enc)
+        try:
+            interval_days = int(days)
+        except Exception:
+            interval_days = 4
+        # Create/enable reminder
+        rec = set_map_update_reminder(update.effective_chat.id, code, interval_days)
+        # Try to infer last update from fortnite.gg and backfill ts
+        try:
+            s = FortniteGGCreativeScraper()
+            det2 = s.fetch_island_details(code)
+            ts = _extract_updated_ts_from_details(det2)
+            if ts:
+                rec.update({"last_update_ts": ts, "last_notified_ts": None})
+                save_json(SUBS_PATH, SUBS)
+        except Exception:
+            pass
+        await q.answer("\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u043e")
+        await send_map_card(q.message, code)
+        return
+    if data.startswith("updmark:"):
+        _, code_enc = data.split(":", 1)
+        code = up.unquote(code_enc)
+        try:
+            mark_map_updated_now(update.effective_chat.id, code)
+        except NameError:
+            pass
+        await q.answer("OK")
+        await send_one(q.message, text=f"\u2705 \u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e: {esc(code)} \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e. \u041d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 4 \u0434\u043d\u044f.", reply_markup=home_kb())
+        
 
 async def alert_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -466,6 +529,225 @@ async def alerts_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await alerts_list_menu(update, context)
 
 
+# ==================== Map Update Reminders (every 4 days) ====================
+import time as _time_mod
+from datetime import datetime as _dt
+
+
+def _now_ts() -> int:
+    return int(_time_mod.time())
+
+
+def reminders_bucket(chat_id: int):
+    b = subs_bucket(chat_id)
+    if "reminders" not in b:
+        b["reminders"] = []
+        save_json(SUBS_PATH, SUBS)
+    return b["reminders"]  # type: ignore
+
+def _parse_updated_text_to_ts(text: str) -> Optional[int]:
+    if not text:
+        return None
+    t = text.strip()
+    now = _now_ts()
+    low = t.lower()
+    # Relative like "3 days ago"
+    m = re.search(r"(\d+)\s*(second|minute|hour|day|week|month|year)s?\s*ago", low)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        mult = {
+            'second': 1,
+            'minute': 60,
+            'hour': 3600,
+            'day': 86400,
+            'week': 604800,
+            'month': 2592000,  # approx 30 days
+            'year': 31536000,
+        }.get(unit, 0)
+        if mult:
+            return now - n * mult
+    # Date formats
+    for fmt in ["%Y-%m-%d", "%d.%m.%Y", "%b %d, %Y", "%d %b %Y", "%B %d, %Y"]:
+        try:
+            return int(_dt.strptime(t, fmt).timestamp())
+        except Exception:
+            pass
+    m2 = re.search(r"(\d+)\s*day", low)
+    if m2:
+        return now - int(m2.group(1)) * 86400
+    return None
+
+def _extract_updated_ts_from_details(det) -> Optional[int]:
+    try:
+        so = getattr(det, 'stats_overview', {}) or {}
+        for k in so.keys():
+            if isinstance(k, str) and k.strip().lower() in ('updated', 'update', 'last update', 'last updated'):
+                return _parse_updated_text_to_ts(str(so[k] or ''))
+        for k, v in so.items():
+            if isinstance(k, str) and any(s in k.lower() for s in ('updated','update')):
+                ts = _parse_updated_text_to_ts(str(v or ''))
+                if ts:
+                    return ts
+    except Exception:
+        return None
+    return None
+
+def set_map_update_reminder(chat_id: int, code: str, days: int = 4) -> dict:
+    b = reminders_bucket(chat_id)
+    for r in b:
+        if r.get("code") == code:
+            r.update({
+                "interval_days": max(1, int(days)),
+                "active": True,
+            })
+            if not r.get("last_update_ts"):
+                r["last_update_ts"] = _now_ts()
+            save_json(SUBS_PATH, SUBS)
+            return r
+    rec = {
+        "code": code,
+        "interval_days": max(1, int(days)),
+        "last_update_ts": _now_ts(),
+        "last_notified_ts": None,
+        "active": True,
+    }
+    b.append(rec)
+    save_json(SUBS_PATH, SUBS)
+    return rec
+
+
+def mark_map_updated_now(chat_id: int, code: str) -> dict:
+    b = reminders_bucket(chat_id)
+    for r in b:
+        if r.get("code") == code:
+            r.update({
+                "last_update_ts": _now_ts(),
+                "last_notified_ts": None,
+                "active": True,
+            })
+            save_json(SUBS_PATH, SUBS)
+            return r
+    return set_map_update_reminder(chat_id, code, 4)
+
+
+def list_map_reminders(chat_id: int) -> list:
+    return list(reminders_bucket(chat_id))
+
+
+def _fmt_dt(ts: int) -> str:
+    try:
+        return _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(ts)
+
+
+async def remind_update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /remind_update <\u043a\u043e\u0434|url> [\u0434\u043d\u0435\u0439=4]", reply_markup=home_kb())
+        return
+    ident = context.args[0]
+    days = 4
+    if len(context.args) >= 2:
+        try:
+            days = max(1, int(context.args[1]))
+        except Exception:
+            days = 4
+    code = ident
+    if "code=" in ident:
+        try:
+            code = dict(up.parse_qsl(up.urlparse(ident).query)).get("code") or ident
+        except Exception:
+            pass
+    rec = set_map_update_reminder(update.effective_chat.id, code, days)
+    # Fetch details to infer last update ts from fortnite.gg
+    try:
+        s = FortniteGGCreativeScraper()
+        det = s.fetch_island_details(code)
+        ts = _extract_updated_ts_from_details(det)
+        if ts:
+            rec.update({"last_update_ts": ts, "last_notified_ts": None})
+            save_json(SUBS_PATH, SUBS)
+    except Exception:
+        pass
+    next_ts = int(rec.get("last_update_ts", _now_ts())) + int(rec.get("interval_days", 4)) * 86400
+    await send_one(update.effective_message, text=f"\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0434\u043b\u044f {esc(code)} \u043a\u0430\u0436\u0434\u044b\u0435 {rec.get('interval_days')} \u0434\u043d\u044f. \u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0435: <b>{_fmt_dt(next_ts)}</b>.")
+
+
+async def mark_updated_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /mark_updated <\u043a\u043e\u0434|url>", reply_markup=home_kb())
+        return
+    ident = context.args[0]
+    code = ident
+    if "code=" in ident:
+        try:
+            code = dict(up.parse_qsl(up.urlparse(ident).query)).get("code") or ident
+        except Exception:
+            pass
+    rec = mark_map_updated_now(update.effective_chat.id, code)
+    next_ts = int(rec.get("last_update_ts", _now_ts())) + int(rec.get("interval_days", 4)) * 86400
+    await send_one(update.effective_message, text=f"\u2705 {esc(code)}: \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e. \u041d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435: <b>{_fmt_dt(next_ts)}</b>.")
+
+
+async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    items = list_map_reminders(update.effective_chat.id)
+    if not items:
+        await send_one(update.effective_message, text="\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0439. \u0414\u043e\u0431\u0430\u0432\u044c\u0442\u0435 /remind_update <\u043a\u043e\u0434>.")
+        return
+    lines = ["\u0412\u0430\u0448\u0438 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f:"]
+    now = _now_ts()
+    for r in items:
+        code = esc(str(r.get("code") or ""))
+        iv = int(r.get("interval_days", 4))
+        lu = int(r.get("last_update_ts") or now)
+        next_ts = lu + iv * 86400
+        overdue = now >= next_ts
+        flag = "\u26A0\uFE0F" if overdue else "\u23F3"
+        lines.append(f"{flag} <code>{code}</code> \u2014 {iv} \u0434\u043d. | \u0441 \u043e\u0431\u043d.: {_fmt_dt(lu)} | next: {_fmt_dt(next_ts)}")
+    await send_one(update.effective_message, text="\n".join(lines))
+
+
+async def check_reminders_job(context):
+    try:
+        now = _now_ts()
+        for chat_id_str, data in list(SUBS.items()):
+            try:
+                chat_id = int(chat_id_str)
+            except Exception:
+                continue
+            rems = (data or {}).get("reminders") or []
+            changed = False
+            for r in rems:
+                if not r or not isinstance(r, dict):
+                    continue
+                if not r.get("active", True):
+                    continue
+                code = r.get("code")
+                iv = int(r.get("interval_days", 4) or 4)
+                lu = int(r.get("last_update_ts") or now)
+                next_ts = lu + iv * 86400
+                last_notified = r.get("last_notified_ts")
+                if now >= next_ts and (not last_notified or int(last_notified) < next_ts):
+                    try:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=(
+                                f"\u23F0 \u041f\u043e\u0440\u0430 \u043e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443 <code>{esc(str(code))}</code>.\n"
+                                f"/mark_updated {code} \u2014 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 \u043f\u043e\u0441\u043b\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f."
+                            ),
+                            parse_mode=ParseMode.HTML,
+                            disable_web_page_preview=True,
+                        )
+                    except Exception:
+                        pass
+                    r["last_notified_ts"] = now
+                    changed = True
+            if changed:
+                save_json(SUBS_PATH, SUBS)
+    except Exception:
+        pass
+
 def main():
     load_dotenv(override=True)
     token = os.getenv("TELEGRAM_TOKEN")
@@ -483,6 +765,14 @@ def main():
     app.add_handler(CommandHandler("alerts", alerts_list_cmd))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_router))
     app.add_handler(CallbackQueryHandler(callbacks))
+    # Reminder commands
+    try:
+        app.add_handler(CommandHandler("remind_update", remind_update_cmd))
+        app.add_handler(CommandHandler("mark_updated", mark_updated_cmd))
+        app.add_handler(CommandHandler("reminders", reminders_cmd))
+    except NameError:
+        # Defined later in the file; safe in re-run environments
+        pass
 
     cmds = [
         BotCommand("start", "\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0431\u043e\u0442\u0430"),
@@ -493,9 +783,18 @@ def main():
         BotCommand("alert_add", "\u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0430 \u043a\u0430\u0440\u0442\u0443"),
         BotCommand("alertc_add", "\u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0430 \u043a\u0440\u0435\u0430\u0442\u043e\u0440\u0430"),
         BotCommand("alerts", "\u043c\u043e\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438"),
+        BotCommand("remind_update", "\u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u043e\u0431 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0438 (4 \u0434\u043d\u044f)"),
+        BotCommand("mark_updated", "\u043e\u0442\u043c\u0435\u0442\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443 \u043a\u0430\u043a \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u0443\u044e"),
+        BotCommand("reminders", "\u043c\u043e\u0438 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f"),
     ]
     try:
         app.bot.set_my_commands(cmds)
+    except Exception:
+        pass
+
+    # Start reminder check job hourly
+    try:
+        app.job_queue.run_repeating(check_reminders_job, interval=3600, first=60)
     except Exception:
         pass
 
