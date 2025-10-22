@@ -5,6 +5,7 @@ All user-facing strings use Unicode escapes to prevent mojibake in shells.
 
 import os
 import time
+import threading
 import json
 import re
 import urllib.parse as up
@@ -195,19 +196,7 @@ def _toint(txt: Optional[str]) -> Optional[int]:
 
 
 def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
-    total_global = None
-    try:
-        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
-        t0 = time.perf_counter()
-        r = sc.get("https://fortnite.gg/player-count", timeout=7)
-        _log_timing("player-count:get", (time.perf_counter() - t0) * 1000.0)
-        soup = BeautifulSoup(r.text, 'lxml')
-        plain = ' '.join(soup.stripped_strings)
-        m = re.search(r"([0-9][0-9,\.\s]+)\s*PLAYERS\s+RIGHT\s+NOW", plain, flags=re.I)
-        if m:
-            total_global = _toint(m.group(1))
-    except Exception:
-        total_global = None
+    total_global = try_get_global_player_count_async()
 
     maps_count = len(SUBS.get(str(chat_id), {}).get("maps", []))
     creators_count = len(SUBS.get(str(chat_id), {}).get("creators", []))
@@ -871,3 +860,46 @@ def main():
 
 if __name__ == "__main__":
     main()
+# ----------- Non-blocking global player count cache -----------
+_PLAYER_COUNT = {"value": None, "ts": 0.0}
+_PLAYER_LOCK = threading.Lock()
+_PLAYER_FETCHING = {"flag": False, "ts": 0.0}
+
+
+def _fetch_player_count_bg():
+    t0 = time.perf_counter()
+    try:
+        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+        r = sc.get("https://fortnite.gg/player-count", timeout=3)
+        _log_timing("player-count:get", (time.perf_counter() - t0) * 1000.0)
+        soup = BeautifulSoup(r.text, 'lxml')
+        plain = ' '.join(soup.stripped_strings)
+        m = re.search(r"([0-9][0-9,\.\s]+)\s*PLAYERS\s+RIGHT\s+NOW", plain, flags=re.I)
+        val = _toint(m.group(1)) if m else None
+        with _PLAYER_LOCK:
+            if val:
+                _PLAYER_COUNT["value"] = val
+                _PLAYER_COUNT["ts"] = time.time()
+    except Exception:
+        pass
+    finally:
+        with _PLAYER_LOCK:
+            _PLAYER_FETCHING["flag"] = False
+            _PLAYER_FETCHING["ts"] = time.time()
+
+
+def try_get_global_player_count_async(max_age_sec: int = 600) -> int | None:
+    now = time.time()
+    with _PLAYER_LOCK:
+        cached = _PLAYER_COUNT.get("value")
+        ts = float(_PLAYER_COUNT.get("ts") or 0.0)
+        fresh = (now - ts) < max_age_sec if ts else False
+        # If stale and not fetching recently, kick background update
+        fetching = bool(_PLAYER_FETCHING.get("flag"))
+        last_fetch = float(_PLAYER_FETCHING.get("ts") or 0.0)
+        recently_tried = (now - last_fetch) < 30
+        if (not fresh) and (not fetching) and (not recently_tried):
+            _PLAYER_FETCHING["flag"] = True
+            _PLAYER_FETCHING["ts"] = now
+            threading.Thread(target=_fetch_player_count_bg, daemon=True).start()
+        return cached
