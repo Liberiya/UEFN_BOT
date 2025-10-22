@@ -390,14 +390,11 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_top(update.effective_chat.id, q.message, 0, 10)
         return
     if data == "nav_home":
-<<<<<<< HEAD
-=======
         # Answer callback ASAP to avoid Telegram "query is too old" errors
         try:
             await q.answer()
         except Exception:
             pass
->>>>>>> b816ed9 (Initialize repo and fix Telegram callback handling + async commands)
         kb = build_home_kb_dynamic(update.effective_chat.id)
         await send_one(q.message, text="\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e", reply_markup=kb, photo=get_banner_media())
         return
