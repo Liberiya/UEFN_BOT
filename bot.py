@@ -4,6 +4,7 @@ All user-facing strings use Unicode escapes to prevent mojibake in shells.
 """
 
 import os
+import time
 import json
 import re
 import urllib.parse as up
@@ -46,6 +47,28 @@ def save_json(path: str, data):
 
 STATE: Dict[str, Dict[str, object]] = load_json(STATE_PATH, {})
 SUBS: Dict[str, Dict[str, list]] = load_json(SUBS_PATH, {})
+
+# Debug timing: set BOT_DEBUG_TIMING=1 to enable console timing logs
+DEBUG_TIMING = str(os.getenv("BOT_DEBUG_TIMING", "0")).lower() in ("1", "true", "yes", "on")
+
+def _log_timing(label: str, ms: float, extra: str = "") -> None:
+    if DEBUG_TIMING:
+        try:
+            print(f"[TIMER] {label}: {ms:.0f} ms {extra}")
+        except Exception:
+            pass
+
+def timed(label: str):
+    def _decorator(func):
+        async def _wrapper(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                return await func(*args, **kwargs)
+            finally:
+                dt = (time.perf_counter() - t0) * 1000.0
+                _log_timing(label or func.__name__, dt)
+        return _wrapper
+    return _decorator
 
 
 def chat_settings(chat_id: int) -> Dict[str, object]:
@@ -130,6 +153,7 @@ def home_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044f", callback_data="nav_home")]])
 
 
+@timed("send_one")
 async def send_one(target_message, *, text: str, reply_markup=None, parse_mode=ParseMode.HTML, photo: Optional[str] = None):
     chat = target_message.chat
     bot = target_message.get_bot()
@@ -140,6 +164,7 @@ async def send_one(target_message, *, text: str, reply_markup=None, parse_mode=P
             await bot.delete_message(chat_id=chat_id, message_id=last_id)
         except Exception:
             pass
+    t1 = time.perf_counter()
     try:
         if photo:
             msg = await chat.send_photo(photo=photo, caption=text, parse_mode=parse_mode, reply_markup=reply_markup)
@@ -147,6 +172,7 @@ async def send_one(target_message, *, text: str, reply_markup=None, parse_mode=P
             msg = await chat.send_message(text=text, parse_mode=parse_mode, disable_web_page_preview=True, reply_markup=reply_markup)
     except Exception:
         msg = await chat.send_message(text=text, parse_mode=parse_mode, disable_web_page_preview=True, reply_markup=reply_markup)
+    _log_timing("send_one:send", (time.perf_counter() - t1) * 1000.0)
     _set_last_msg(chat_id, msg.message_id)
     return msg
 
@@ -172,7 +198,9 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     total_global = None
     try:
         sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
-        r = sc.get("https://fortnite.gg/player-count", timeout=10)
+        t0 = time.perf_counter()
+        r = sc.get("https://fortnite.gg/player-count", timeout=7)
+        _log_timing("player-count:get", (time.perf_counter() - t0) * 1000.0)
         soup = BeautifulSoup(r.text, 'lxml')
         plain = ' '.join(soup.stripped_strings)
         m = re.search(r"([0-9][0-9,\.\s]+)\s*PLAYERS\s+RIGHT\s+NOW", plain, flags=re.I)
@@ -201,6 +229,7 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+@timed("start_cmd")
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = chat_settings(update.effective_chat.id)
     text = (
@@ -212,6 +241,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text=text, reply_markup=kb, photo=get_banner_media())
 
 
+@timed("help_cmd")
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(
         update.effective_message,
@@ -220,6 +250,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@timed("top_cmd")
 async def top_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         page_size = int(context.args[0]) if context.args else 10
@@ -228,6 +259,7 @@ async def top_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_top(update.effective_chat.id, update.effective_message, 0, max(5, min(30, page_size)))
 
 
+@timed("send_top")
 async def send_top(chat_id: int, target_message, offset: int, limit: int):
     s = chat_settings(chat_id)
     per_page = 28
@@ -247,6 +279,7 @@ async def send_top(chat_id: int, target_message, offset: int, limit: int):
     await send_one(target_message, text=text, reply_markup=kb)
 
 
+@timed("map_cmd")
 async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await send_one(update.effective_message, text="\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u043a\u043e\u0434 \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443: 1234-5678-9012 \u0438\u043b\u0438 https://fortnite.gg/island?code=\u2026", reply_markup=home_kb())
@@ -254,6 +287,7 @@ async def map_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_map_card(update.effective_message, context.args[0])
 
 
+@timed("send_map_card")
 async def send_map_card(target_message, ident: str):
     s = FortniteGGCreativeScraper()
     det = s.fetch_island_details(ident)
@@ -312,6 +346,7 @@ async def send_map_card(target_message, ident: str):
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(det, 'image', None))
 
 
+@timed("creator_cmd")
 async def creator_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await send_one(update.effective_message, text="\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0438\u043c\u044f \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443: https://fortnite.gg/creator?name=\u2026", reply_markup=home_kb())
@@ -319,6 +354,7 @@ async def creator_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_creator_card(update.effective_message, context.args[0])
 
 
+@timed("send_creator_card")
 async def send_creator_card(target_message, ident: str):
     s = FortniteGGCreativeScraper()
     stats = s.fetch_creator_stats(ident, max_pages=1)
@@ -335,6 +371,7 @@ async def send_creator_card(target_message, ident: str):
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(stats, 'avatar', None))
 
 
+@timed("alerts_list_menu")
 async def alerts_list_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     b = subs_bucket(update.effective_chat.id)
     lines = ["\u0412\u0430\u0448\u0438 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438:"]
@@ -360,6 +397,7 @@ async def alerts_list_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text="\n".join(lines), reply_markup=kb)
 
 
+@timed("text_router")
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     t = (update.message.text or "").strip()
     if "fortnite.gg/island?code=" in t or (len(t) == 14 and t.count("-") == 2 and t.replace('-', '').isdigit()):
@@ -373,6 +411,7 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+@timed("callbacks")
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not q or not q.data:
@@ -501,6 +540,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_one(q.message, text=f"\u2705 \u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e: {esc(code)} \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e. \u041d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 4 \u0434\u043d\u044f.", reply_markup=home_kb())
         
 
+@timed("alert_add_cmd")
 async def alert_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /alert_add <\u043a\u043e\u0434|url> <\u043f\u043e\u0440\u043e\u0433>", reply_markup=home_kb())
@@ -516,6 +556,7 @@ async def alert_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text=f"OK. \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0430 {code} \u043f\u0440\u0438 \u2265 {thr}")
 
 
+@timed("alertc_add_cmd")
 async def alertc_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /alertc_add <name|url> <\u043f\u043e\u0440\u043e\u0433>", reply_markup=home_kb())
@@ -531,6 +572,7 @@ async def alertc_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text=f"OK. \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430 \u043d\u0430 {name} \u043f\u0440\u0438 \u2265 {thr}")
 
 
+@timed("alerts_list_cmd")
 async def alerts_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await alerts_list_menu(update, context)
 
@@ -648,6 +690,7 @@ def _fmt_dt(ts: int) -> str:
         return str(ts)
 
 
+@timed("remind_update_cmd")
 async def remind_update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /remind_update <\u043a\u043e\u0434|url> [\u0434\u043d\u0435\u0439=4]", reply_markup=home_kb())
@@ -680,6 +723,7 @@ async def remind_update_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text=f"\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0434\u043b\u044f {esc(code)} \u043a\u0430\u0436\u0434\u044b\u0435 {rec.get('interval_days')} \u0434\u043d\u044f. \u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0435: <b>{_fmt_dt(next_ts)}</b>.")
 
 
+@timed("mark_updated_cmd")
 async def mark_updated_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await send_one(update.effective_message, text="\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: /mark_updated <\u043a\u043e\u0434|url>", reply_markup=home_kb())
@@ -696,6 +740,7 @@ async def mark_updated_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text=f"\u2705 {esc(code)}: \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e. \u041d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435: <b>{_fmt_dt(next_ts)}</b>.")
 
 
+@timed("reminders_cmd")
 async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     items = list_map_reminders(update.effective_chat.id)
     if not items:
@@ -714,6 +759,7 @@ async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_one(update.effective_message, text="\n".join(lines))
 
 
+@timed("check_reminders_job")
 async def check_reminders_job(context):
     try:
         now = _now_ts()
