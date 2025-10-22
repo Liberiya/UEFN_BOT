@@ -1,4 +1,28 @@
-﻿.env
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Environments
+.env
 .venv/
+venv/
+ENV/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# App runtime state
 bot_state.json
 bot_subs.json
+
+# Logs
+*.log

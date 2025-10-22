@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, InputFile
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters
+from telegram.error import BadRequest
 
 from uefn_scraper.fortnite_gg import FortniteGGCreativeScraper
 
@@ -389,6 +390,14 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_top(update.effective_chat.id, q.message, 0, 10)
         return
     if data == "nav_home":
+<<<<<<< HEAD
+=======
+        # Answer callback ASAP to avoid Telegram "query is too old" errors
+        try:
+            await q.answer()
+        except Exception:
+            pass
+>>>>>>> b816ed9 (Initialize repo and fix Telegram callback handling + async commands)
         kb = build_home_kb_dynamic(update.effective_chat.id)
         await send_one(q.message, text="\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e", reply_markup=kb, photo=get_banner_media())
         return
@@ -754,26 +763,7 @@ def main():
     if not token:
         raise RuntimeError("TELEGRAM_TOKEN is not set")
 
-    app = Application.builder().token(token).build()
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("top", top_cmd))
-    app.add_handler(CommandHandler("map", map_cmd))
-    app.add_handler(CommandHandler("creator", creator_cmd))
-    app.add_handler(CommandHandler("alert_add", alert_add_cmd))
-    app.add_handler(CommandHandler("alertc_add", alertc_add_cmd))
-    app.add_handler(CommandHandler("alerts", alerts_list_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_router))
-    app.add_handler(CallbackQueryHandler(callbacks))
-    # Reminder commands
-    try:
-        app.add_handler(CommandHandler("remind_update", remind_update_cmd))
-        app.add_handler(CommandHandler("mark_updated", mark_updated_cmd))
-        app.add_handler(CommandHandler("reminders", reminders_cmd))
-    except NameError:
-        # Defined later in the file; safe in re-run environments
-        pass
-
+    # Define bot commands list
     cmds = [
         BotCommand("start", "\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0431\u043e\u0442\u0430"),
         BotCommand("help", "\u043f\u043e\u043c\u043e\u0449\u044c"),
@@ -787,9 +777,43 @@ def main():
         BotCommand("mark_updated", "\u043e\u0442\u043c\u0435\u0442\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443 \u043a\u0430\u043a \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u0443\u044e"),
         BotCommand("reminders", "\u043c\u043e\u0438 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f"),
     ]
+
+    # Build application; attach post_init to set commands once bot starts
+    async def _post_init(application):
+        try:
+            await application.bot.set_my_commands(cmds)
+        except Exception:
+            pass
+    app = Application.builder().token(token).post_init(_post_init).build()
+    app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("top", top_cmd))
+    app.add_handler(CommandHandler("map", map_cmd))
+    app.add_handler(CommandHandler("creator", creator_cmd))
+    app.add_handler(CommandHandler("alert_add", alert_add_cmd))
+    app.add_handler(CommandHandler("alertc_add", alertc_add_cmd))
+    app.add_handler(CommandHandler("alerts", alerts_list_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_router))
+    app.add_handler(CallbackQueryHandler(callbacks))
+    # Error handler to reduce noisy logs on old/expired callback queries
+    async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            err = context.error
+            if isinstance(err, BadRequest) and "Query is too old" in str(err):
+                return  # ignore expected race/timeout on callbacks
+        except Exception:
+            pass
     try:
-        app.bot.set_my_commands(cmds)
+        app.add_error_handler(_error_handler)
     except Exception:
+        pass
+    # Reminder commands
+    try:
+        app.add_handler(CommandHandler("remind_update", remind_update_cmd))
+        app.add_handler(CommandHandler("mark_updated", mark_updated_cmd))
+        app.add_handler(CommandHandler("reminders", reminders_cmd))
+    except NameError:
+        # Defined later in the file; safe in re-run environments
         pass
 
     # Start reminder check job hourly
@@ -804,7 +828,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
