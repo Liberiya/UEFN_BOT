@@ -831,8 +831,20 @@ def main():
     async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         try:
             err = context.error
-            if isinstance(err, BadRequest) and "Query is too old" in str(err):
-                return  # ignore expected race/timeout on callbacks
+            # If user pressed an old inline button, proactively send fresh Home
+            if isinstance(err, BadRequest) and ("Query is too old" in str(err) or "query id is invalid" in str(err)):
+                try:
+                    chat_id = None
+                    if hasattr(context, 'chat_data') and update and hasattr(update, 'effective_chat') and update.effective_chat:
+                        chat_id = update.effective_chat.id
+                    elif update and hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+                        chat_id = update.callback_query.message.chat_id
+                    if chat_id is not None:
+                        kb = build_home_kb_dynamic(chat_id)
+                        await context.bot.send_message(chat_id=chat_id, text="\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e", reply_markup=kb, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                except Exception:
+                    pass
+                return
         except Exception:
             pass
     try:
