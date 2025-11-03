@@ -544,7 +544,7 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}{pct_txt}"
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(total_label, callback_data="stats:home")],
+        [InlineKeyboardButton(total_label, callback_data="stats:popular")],
         [InlineKeyboardButton("\U0001F50E \u041d\u0430\u0439\u0442\u0438 \u043a\u0430\u0440\u0442\u0443", callback_data="start:map"), InlineKeyboardButton("\U0001F464 \u041a\u0440\u0435\u0430\u0442\u043e\u0440", callback_data="start:creator")],
         [InlineKeyboardButton(sub_label, callback_data="start:alerts"), InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", callback_data="start:settings")],
         [InlineKeyboardButton("\U0001F525 \u0422\u043e\u043f 10", callback_data="nav_top:10"), InlineKeyboardButton("\u2753 \u041f\u043e\u043c\u043e\u0449\u044c", callback_data="start:help")],
