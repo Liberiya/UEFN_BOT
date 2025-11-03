@@ -554,7 +554,6 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
 
 def stats_home_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F525 Popular Releases (7d)", callback_data="stats:popular")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
 
