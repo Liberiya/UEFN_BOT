@@ -684,7 +684,8 @@ async def send_map_card(target_message, ident: str):
         upd_text = None
         rel_text = None
 
-    lines = [f"<b>{name}</b>", f"<code>{esc(code)}</code>", f"\U0001F465 Players: {pn}"]
+    url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
+    lines = [f"<b><a href=\"{url}\">{name}</a></b>", f"<code>{esc(code)}</code>", f"\U0001F465 Players: {pn}"]
     if re.search(r"\d", p24_raw or ""):
         lines.append(f"\U0001F4C8 24h Peak: {p24}")
     lines.append(f"\U0001F3C6 All-time Peak: {ap}")
@@ -699,11 +700,11 @@ async def send_map_card(target_message, ident: str):
             parts.append(f"\U0001F4C5 Release Date: {esc(str(rel_text))}")
         lines.append("  |  ".join(parts))
     text = "\n".join(lines)
-    url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
+    
     qcode = up.quote(code, safe='')
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F310 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043d\u0430 Fortnite.GG", url=url), InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
-        [InlineKeyboardButton("\U0001F514 50", callback_data=f"alert_map:{qcode}:50"), InlineKeyboardButton("\U0001F514 100", callback_data=f"alert_map:{qcode}:100"), InlineKeyboardButton("\U0001F514 500", callback_data=f"alert_map:{qcode}:500"), InlineKeyboardButton("\U0001F514 1000", callback_data=f"alert_map:{qcode}:1000")],
+        [InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
+        [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435: \u043d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0442\u044c \u043a\u0430\u0436\u0434\u044b\u0435 4 \u0434\u043d\u044f", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041e\u0431\u043d\u043e\u0432\u0438\u043b", callback_data=f"updmark:{qcode}")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
@@ -722,14 +723,12 @@ async def send_creator_card(target_message, ident: str):
     s = FortniteGGCreativeScraper()
     stats = s.fetch_creator_stats(ident, max_pages=1)
     name = esc(stats.name)
-    text = f"<b>Creator: {name}</b>\n\U0001F465 Now (sum): <b>{stats.total_players_now}</b> | Maps: <b>{stats.total_maps}</b>\n\n" + "\n".join(format_list_items(stats.items, limit=10))
     url = f"https://fortnite.gg/creator?name={name}"
+    text = f"<b>Creator: <a href='{url}'>{name}</a></b>\n\U0001F465 Now (sum): <b>{stats.total_players_now}</b> | Maps: <b>{stats.total_maps}</b>\n\n" + "\n".join(format_list_items(stats.items, limit=10))
     qname = up.quote(stats.name, safe='')
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F310 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043d\u0430 Fortnite.GG", url=url)],
-        [InlineKeyboardButton("\U0001F514 50", callback_data=f"alert_creator:{qname}:50"), InlineKeyboardButton("\U0001F514 100", callback_data=f"alert_creator:{qname}:100"), InlineKeyboardButton("\U0001F514 500", callback_data=f"alert_creator:{qname}:500"), InlineKeyboardButton("\U0001F514 1000", callback_data=f"alert_creator:{qname}:1000")],
-        [InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_creator_custom:{qname}")],
-        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044f", callback_data="nav_home")],
+        [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435: \u043d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_creator_custom:{qname}")],
+        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(stats, 'avatar', None))
 
@@ -1224,6 +1223,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
