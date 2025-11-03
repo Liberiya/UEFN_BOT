@@ -266,7 +266,8 @@ def try_get_epic_ugc_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[fl
 
     try:
         sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
-        r = sc.get("https://fortnite.gg/creative", timeout=15)
+        # The EPIC vs UGC block is on the Player Count page
+        r = sc.get("https://fortnite.gg/player-count", timeout=15)
         soup = BeautifulSoup(r.text, 'lxml')
         # Find the card by title text
         anchor = soup.find(string=re.compile(r"EPIC\s+VS\s+UGC", re.I))
