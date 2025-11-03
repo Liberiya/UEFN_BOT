@@ -4,6 +4,7 @@ All user-facing strings use Unicode escapes to prevent mojibake in shells.
 """
 
 import os
+import time
 import json
 import re
 import urllib.parse as up
@@ -167,7 +168,33 @@ def _toint(txt: Optional[str]) -> Optional[int]:
     return int("".join(ds)) if ds else None
 
 
-def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
+# -------------------- Counts helpers (Fortnite / UEFN) --------------------
+_COUNTS_CACHE: Dict[str, Dict[str, Optional[int]]] = {
+    "fortnite": {"ts": None, "val": None},
+    "uefn": {"ts": None, "val": None},
+}
+
+def _cache_get(name: str, ttl_sec: int) -> Optional[int]:
+    try:
+        entry = _COUNTS_CACHE.get(name) or {}
+        ts = entry.get("ts")
+        if isinstance(ts, (int, float)) and (time.time() - float(ts) < ttl_sec):
+            v = entry.get("val")
+            return int(v) if v is not None else None
+    except Exception:
+        pass
+    return None
+
+def _cache_set(name: str, value: Optional[int]) -> None:
+    try:
+        _COUNTS_CACHE[name] = {"ts": time.time(), "val": (int(value) if value is not None else None)}
+    except Exception:
+        pass
+
+def try_get_fortnite_players_total(ttl_sec: int = 180) -> Optional[int]:
+    v = _cache_get("fortnite", ttl_sec)
+    if v is not None:
+        return v
     total_global = None
     try:
         sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
@@ -179,6 +206,39 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
             total_global = _toint(m.group(1))
     except Exception:
         total_global = None
+    _cache_set("fortnite", total_global)
+    return total_global
+
+def try_get_uefn_players_total(max_pages: int = 3, hide_epic: bool = True, ttl_sec: int = 180) -> Optional[int]:
+    v = _cache_get("uefn", ttl_sec)
+    if v is not None:
+        return v
+    total = None
+    try:
+        s = FortniteGGCreativeScraper()
+        acc = 0
+        for it in s.iter_creative_list(max_pages=max_pages, hide_epic=hide_epic):
+            if it.players_now:
+                acc += int(it.players_now)
+        total = acc
+    except Exception:
+        total = None
+    _cache_set("uefn", total)
+    return total
+
+
+def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
+    # Live totals (with small cache to avoid frequent requests)
+    total_global = try_get_fortnite_players_total(ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180")))
+    # UEFN total = sum of players across most-played Creative pages (approximation)
+    # Respect hide_epic preference for the notion of "UEFN-only" maps
+    s = chat_settings(chat_id)
+    hide_epic = bool(s.get("hide_epic", True))
+    uefn_total = try_get_uefn_players_total(
+        max_pages=int(os.getenv("BOT_UEFN_PAGES", "3")),
+        hide_epic=hide_epic,
+        ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180")),
+    )
 
     maps_count = len(SUBS.get(str(chat_id), {}).get("maps", []))
     creators_count = len(SUBS.get(str(chat_id), {}).get("creators", []))
@@ -190,7 +250,7 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
         return f"{int(n):,}".replace(",", " ")
 
     sub_label = f"\U0001F514 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 ({subs_count})"
-    total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)}"
+    total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}"
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(total_label, url="https://fortnite.gg/player-count")],
