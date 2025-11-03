@@ -544,7 +544,7 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}{pct_txt}"
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(total_label, callback_data="stats:popular")],
+        [InlineKeyboardButton(total_label, callback_data="stats:home")],
         [InlineKeyboardButton("\U0001F50E \u041d\u0430\u0439\u0442\u0438 \u043a\u0430\u0440\u0442\u0443", callback_data="start:map"), InlineKeyboardButton("\U0001F464 \u041a\u0440\u0435\u0430\u0442\u043e\u0440", callback_data="start:creator")],
         [InlineKeyboardButton(sub_label, callback_data="start:alerts"), InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", callback_data="start:settings")],
         [InlineKeyboardButton("\U0001F525 \u0422\u043e\u043f 10", callback_data="nav_top:10"), InlineKeyboardButton("\u2753 \u041f\u043e\u043c\u043e\u0449\u044c", callback_data="start:help")],
@@ -608,24 +608,27 @@ def try_get_popular_releases_week(ttl_sec: int = 300, limit: int = 10):
 async def send_stats_popular_releases(target_message):
     items = try_get_popular_releases_week() or []
     def fmtn(v):
-        return f"{int(v):,}".replace(","," ") if isinstance(v, int) else "?"
-    lines = []
+        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
+    blocks = []
     for it in items:
         name = esc(it.get("name"))
         href = esc(it.get("href")) if it.get("href") else None
         now = it.get("now")
-        if href:
-            lines.append(f"• <a href='{href}'><b>{name}</b></a>" + (f"\n👥 Now: <b>{fmtn(now)}</b>" if now is not None else ""))
-        else:
-            lines.append(f"• <b>{name}</b>" + (f"\n👥 Now: <b>{fmtn(now)}</b>" if now is not None else ""))
-    text = "<b>Popular Releases (7d)</b>\n" + ("\n\n".join(lines) if lines else "Нет данных") + "\n\n<i>Источник: fortnite.gg/player-count</i>"
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="stats:home")], [InlineKeyboardButton("🏠 Главная", callback_data="nav_home")]])
+        title = f"• <a href='{href}'><b>{name}</b></a>" if href else f"• <b>{name}</b>"
+        meta = f"\n\U0001F465 Now: <b>{fmtn(now)}</b>" if now is not None else ""
+        blocks.append(title + meta)
+    body = "\n\n".join(blocks) if blocks else "\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445"
+    text = f"<b>Popular Releases (7d)</b>\n{body}\n\n<i>Источник: fortnite.gg/player-count</i>"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")],
+        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
+    ])
     await send_one(target_message, text=text, reply_markup=kb)
 
 async def send_stats_home(target_message):
     await send_one(target_message, text="\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430 Fortnite (Player Count)", reply_markup=stats_home_kb())
 async def send_stats_home(target_message):
-    await send_one(target_message, text="Player Count — выбор раздела:", reply_markup=stats_home_kb())
+    await send_one(target_message, text="\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0430\u0437\u0434\u0435\u043B Player Count:", reply_markup=stats_home_kb())
     sp = try_get_epic_ugc_split() or {}
     epic_now = sp.get("epic_now")
     ugc_now = sp.get("ugc_now")
