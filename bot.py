@@ -627,25 +627,6 @@ async def send_stats_popular_releases(target_message):
 
 async def send_stats_home(target_message):
     await send_one(target_message, text="\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430 Fortnite (Player Count)", reply_markup=stats_home_kb())
-async def send_stats_home(target_message):
-    await send_one(target_message, text="\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0430\u0437\u0434\u0435\u043B Player Count:", reply_markup=stats_home_kb())
-    sp = try_get_epic_ugc_split() or {}
-    epic_now = sp.get("epic_now")
-    ugc_now = sp.get("ugc_now")
-    epic_pct = sp.get("epic_pct")
-    ugc_pct = sp.get("ugc_pct")
-    def fmtn(v):
-        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
-    def fmtp(v):
-        return f"{float(v):.1f}%" if isinstance(v, (int, float)) else "?%"
-    text = (
-        f"<b>EPIC vs UGC</b>\n"
-        f"Epic: <b>{fmtp(epic_pct)}</b> ({fmtn(epic_now)})\n"
-        f"UGC: <b>{fmtp(ugc_pct)}</b> ({fmtn(ugc_now)})\n"
-        f"\n<i>Источник: fortnite.gg/player-count</i>"
-    )
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")], [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")]])
-    await send_one(target_message, text=text, reply_markup=kb)
 
 async def send_stats_build_zero(target_message):
     sp = try_get_build_zero_split() or {}
