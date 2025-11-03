@@ -653,6 +653,25 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import sys, os, pathlib, platform, time, subprocess
+    path = pathlib.Path(__file__).resolve()
+    cwd = pathlib.Path().resolve()
+    try:
+        sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        sha = "n/a"
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    txt = (
+        f"<b>Version</b>\n"
+        f"file: <code>{path}</code>\n"
+        f"cwd: <code>{cwd}</code>\n"
+        f"py: {sys.version.split()[0]}  os: {platform.system()} {platform.release()}\n"
+        f"git: {sha}  time: {ts}"
+    )
+    await update.effective_message.reply_text(txt, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 async def top_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         page_size = int(context.args[0]) if context.args else 10
@@ -857,6 +876,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     t = (update.message.text or "").strip()
+    # One-shot threshold input: allow entering a number after pressing "Настроить порог"
+    try:
+        pend = chat_settings(update.effective_chat.id).get("await_thr")
+        if isinstance(pend, dict) and t and re.fullmatch(r"\d{1,6}", t):
+            thr = int(t)
+            target = str(pend.get("target"))
+            ident = str(pend.get("id"))
+            if target == "map":
+                add_map_sub(update.effective_chat.id, ident, thr)
+                await update.message.reply_text(
+                    f"OK. \u041F\u043E\u0440\u043E\u0433 \u0434\u043B\u044F \u043A\u0430\u0440\u0442\u044B <code>{esc(ident)}</code>: <b>{thr}</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+            elif target == "creator":
+                add_creator_sub(update.effective_chat.id, ident, thr)
+                await update.message.reply_text(
+                    f"OK. \u041F\u043E\u0440\u043E\u0433 \u0434\u043B\u044F \u043A\u0440\u0435\u0430\u0442\u043E\u0440\u0430 <b>{esc(ident)}</b>: <b>{thr}</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+            s = chat_settings(update.effective_chat.id)
+            s.pop("await_thr", None)
+            save_json(STATE_PATH, STATE)
+            return
+    except Exception:
+        pass
     if "fortnite.gg/island?code=" in t or (len(t) == 14 and t.count("-") == 2 and t.replace('-', '').isdigit()):
         await send_map_card(update.message, t)
         return
@@ -1307,6 +1351,7 @@ def main():
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("top", top_cmd))
     app.add_handler(CommandHandler("map", map_cmd))
     app.add_handler(CommandHandler("creator", creator_cmd))
@@ -1327,6 +1372,7 @@ def main():
     cmds = [
         BotCommand("start", "\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0431\u043e\u0442\u0430"),
         BotCommand("help", "\u043f\u043e\u043c\u043e\u0449\u044c"),
+        BotCommand("version", "\u0432\u0435\u0440\u0441\u0438\u044f/\u043e\u0442\u043a\u0443\u0434\u0430 \u0437\u0430\u043f\u0443\u0449\u0435\u043d"),
         BotCommand("top", "\u0442\u043e\u043f \u043a\u0430\u0440\u0442"),
         BotCommand("map", "\u043a\u0430\u0440\u0442\u0430 \u043f\u043e \u043a\u043e\u0434\u0443/\u0441\u0441\u044b\u043b\u043a\u0435"),
         BotCommand("creator", "\u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430 \u043f\u043e \u043a\u0440\u0435\u0430\u0442\u043e\u0440\u0443"),
