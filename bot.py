@@ -765,7 +765,6 @@ async def send_map_card(target_message, ident: str):
     
     qcode = up.quote(code, safe='')
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
         [InlineKeyboardButton("\U0001F514 \u041e\u0442 75", callback_data=f"alert_map_fixed:{qcode}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043e\u0441\u0442", callback_data=f"alert_map_growth:{qcode}")],
         [InlineKeyboardButton("\U0001F514 Уведомление: настроить порог", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0442\u044c \u043a\u0430\u0436\u0434\u044b\u0435 4 \u0434\u043d\u044f", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041e\u0431\u043d\u043e\u0432\u0438\u043b", callback_data=f"updmark:{qcode}")],
@@ -838,7 +837,6 @@ async def send_map_card(target_message, ident: str):
 
     qcode = up.quote(code, safe='')
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F4CB \u041A\u043E\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
         [InlineKeyboardButton("\U0001F514 \u041E\u0442 75", callback_data=f"alert_map_fixed:{qcode}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043E\u0441\u0442", callback_data=f"alert_map_growth:{qcode}")],
         [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u0435: \u043D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043E\u0440\u043E\u0433", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u23F0 \u041D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0442\u044C \u043A\u0430\u0436\u0434\u044B\u0435 4 \u0434\u043D\u044F", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041E\u0431\u043D\u043E\u0432\u0438\u043B", callback_data=f"updmark:{qcode}")],
