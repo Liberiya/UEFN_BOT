@@ -814,15 +814,17 @@ async def send_map_card(target_message, ident: str):
     url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
     lines = [
         f"<b><a href=\"{url}\">{name}</a></b>",
-        f"<code>{esc(code)}</code>",
         "",
-        f"\U0001F465 \u041E\u043D\u043B\u0430\u0439\u043D: <b>{pn}</b>",
+        f"\U0001F465 \u041E\u043D\u043B\u0430\u0439\u043D: <b>{_toint(pn_raw) if _toint(pn_raw) is not None else pn}</b>",
     ]
     val24 = _toint(p24_raw)
     if val24 is not None:
         lines.append(f"\U0001F4C8 \u041F\u0438\u043A 24\u0447: <b>{val24}</b>")
-    if ap_date:
-        lines.append(f"\U0001F3C6 \u041F\u0438\u043A \u0437\u0430 \u0432\u0441\u0451 \u0432\u0440\u0435\u043C\u044F: {esc(ap_date)}")
+    ap_val = _toint(ap_raw)
+    if (ap_val is not None) or ap_date:
+        prefix = f"<b>{ap_val}</b>" if ap_val is not None else ""
+        suffix = f" \u2022 {esc(ap_date)}" if ap_date else ""
+        lines.append(f"\U0001F3C6 \u041F\u0438\u043A \u0437\u0430 \u0432\u0441\u0451 \u0432\u0440\u0435\u043C\u044F: {prefix}{suffix}")
 
     if upd_text or rel_text:
         lines.append("")
@@ -839,7 +841,7 @@ async def send_map_card(target_message, ident: str):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001F514 \u041E\u0442 75", callback_data=f"alert_map_fixed:{qcode}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043E\u0441\u0442", callback_data=f"alert_map_growth:{qcode}")],
         [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u0435: \u043D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043E\u0440\u043E\u0433", callback_data=f"alert_map_custom:{qcode}")],
-        [InlineKeyboardButton("\u23F0 \u041D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0442\u044C \u043A\u0430\u0436\u0434\u044B\u0435 4 \u0434\u043D\u044F", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041E\u0431\u043D\u043E\u0432\u0438\u043B", callback_data=f"updmark:{qcode}")],
+        [InlineKeyboardButton("\u23F0 \u041D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0442\u044C \u043A\u0430\u0436\u0434\u044B\u0435 4 \u0434\u043D\u044F", callback_data=f"updremind:{qcode}:4")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043B\u0430\u0432\u043D\u0430\u044F", callback_data="nav_home")],
     ])
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(det, 'image', None))
