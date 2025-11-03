@@ -111,7 +111,7 @@ def format_list_items(items, limit: int = 10) -> List[str]:
         out.append(
             f"<b>#{it.rank or ''}</b> \u2022 <a href='{href}'>{title}</a>\n"
             f"<code>{code or ''}</code>\n"
-            f"\U0001F465 Now: <b>{now_}</b>   \U0001F53A Peak: <b>{peak}</b>   \u25B6\uFE0F 24h Plays: {esc(it.plays_24h)}"
+            f"\U0001F465 Онлайн: <b>{now_}</b>   \U0001F53A Пик: <b>{peak}</b>   \u25B6\uFE0F 24ч Игроков: {esc(it.plays_24h)}"
         )
     return out
 
@@ -634,8 +634,12 @@ async def send_top(chat_id: int, target_message, offset: int, limit: int):
     scraper = FortniteGGCreativeScraper()
     items = list(scraper.iter_creative_list(max_pages=pages_needed, hide_epic=bool(s.get("hide_epic", True))))
     slice_ = items[offset: offset + limit]
-    header = f"<b>Top {offset+1}\u2013{offset+len(slice_)}</b> of most played | Hide Epic: <b>{'ON' if s.get('hide_epic', True) else 'OFF'}</b>\n"
-    text = header + ("\n".join(format_list_items(slice_, limit=len(slice_))) if slice_ else "\n\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445")
+    header = (
+        f"<b>Top {offset+1}\u2013{offset+len(slice_)}</b> of most played | "
+        f"Hide Epic: <b>{'ON' if s.get('hide_epic', True) else 'OFF'}</b>\n"
+    )
+    body = "\n\n".join(format_list_items(slice_, limit=len(slice_))) if slice_ else "\n\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445"
+    text = header + body
     prev_off = max(0, offset - limit)
     next_off = offset + limit
     kb = InlineKeyboardMarkup([
@@ -883,8 +887,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("alert_map_custom:"):
         _, code_enc = data.split(":", 1)
         code = up.unquote(code_enc)
-        await q.answer()
-        await send_one(q.message, text=f"\u0412\u0432\u0435\u0434\u0438\u0442\u0435: /alert_add {code} <\u043f\u043e\u0440\u043e\u0433>", reply_markup=home_kb())
+        # Покажем всплывающую подсказку, не удаляя текущую карточку
+        await q.answer(text=f"Введите команду:\n/alert_add {code} <порог>", show_alert=True)
         return
     # Creator alerts
     if data.startswith("alert_creator:"):
@@ -897,8 +901,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("alert_creator_custom:"):
         _, name_enc = data.split(":", 1)
         name = up.unquote(name_enc)
-        await q.answer()
-        await send_one(q.message, text=f"\u0412\u0432\u0435\u0434\u0438\u0442\u0435: /alertc_add {name} <\u043f\u043e\u0440\u043e\u0433>", reply_markup=home_kb())
+        # Всплывающее окно с инструкцией, карточка остаётся на месте
+        await q.answer(text=f"Введите команду:\n/alertc_add {name} <порог>", show_alert=True)
         return
 
     # Map update reminder callbacks
