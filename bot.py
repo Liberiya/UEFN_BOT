@@ -685,27 +685,31 @@ async def send_map_card(target_message, ident: str):
         rel_text = None
 
     url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
-    lines = [f"<b><a href=\"{url}\">{name}</a></b>", f"<code>{esc(code)}</code>", f"\U0001F465 Players: {pn}"]
+    lines = [
+        f"<b><a href=\"{url}\">{name}</a></b>",
+        f"<code>{esc(code)}</code>",
+        f"\U0001F465 Онлайн: <b>{pn}</b>",
+    ]
     if re.search(r"\d", p24_raw or ""):
-        lines.append(f"\U0001F4C8 24h Peak: {p24}")
-    lines.append(f"\U0001F3C6 All-time Peak: {ap}")
-    lines.append(f"\U0001F3F7\uFE0F Tags: {esc(tags)}")
+        lines.append(f"\U0001F4C8 Пик 24ч: <b>{p24}</b>")
+    lines.append(f"\U0001F3C6 Пик за всё время: <b>{ap}</b>")
+    if tags:
+        lines.append(f"\U0001F3F7\uFE0F Теги: {esc(tags)}")
     # Separate block: Updated / Release Date on a new line below
     if upd_text or rel_text:
         lines.append("")
         parts = []
         if upd_text:
-            parts.append(f"\u23F2\uFE0F Updated: {esc(str(upd_text))}")
+            parts.append(f"\u23F2\uFE0F Обновлено: {esc(str(upd_text))}")
         if rel_text:
-            parts.append(f"\U0001F4C5 Release Date: {esc(str(rel_text))}")
+            parts.append(f"\U0001F4C5 Дата релиза: {esc(str(rel_text))}")
         lines.append("  |  ".join(parts))
     text = "\n".join(lines)
     
     qcode = up.quote(code, safe='')
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
-        [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435: \u043d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_map_custom:{qcode}")],
-        [InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_map_custom:{qcode}")],
+        [InlineKeyboardButton("\U0001F514 Уведомление: настроить порог", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0442\u044c \u043a\u0430\u0436\u0434\u044b\u0435 4 \u0434\u043d\u044f", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041e\u0431\u043d\u043e\u0432\u0438\u043b", callback_data=f"updmark:{qcode}")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
@@ -724,7 +728,24 @@ async def send_creator_card(target_message, ident: str):
     stats = s.fetch_creator_stats(ident, max_pages=1)
     name = esc(stats.name)
     url = f"https://fortnite.gg/creator?name={name}"
-    text = f"<b>Creator: <a href='{url}'>{name}</a></b>\n\U0001F465 Now (sum): <b>{stats.total_players_now}</b> | Maps: <b>{stats.total_maps}</b>\n\n" + "\n".join(format_list_items(stats.items, limit=10))
+    # Показываем компактный список карт с двойными переносами для воздуха
+    def _fmt_item(it):
+        title = esc(it.title)
+        code_i = esc(it.code)
+        now_i = it.players_now or 0
+        peak_i = it.all_time_peak or 0
+        href = esc(it.href)
+        return (
+            f"<a href='{href}'><b>{title}</b></a>\n"
+            f"<code>{code_i or ''}</code>\n"
+            f"\U0001F465 Онлайн: <b>{now_i}</b>  •  \U0001F3C6 Пик: <b>{peak_i}</b>"
+        )
+    items_block = "\n\n".join(_fmt_item(it) for it in stats.items[:8])
+    text = (
+        f"<b>Креатор: <a href='{url}'>{name}</a></b>\n"
+        f"\U0001F465 Сейчас: <b>{stats.total_players_now}</b>  •  \U0001F3F7\uFE0F Карты: <b>{stats.total_maps}</b>\n\n"
+        + items_block
+    )
     qname = up.quote(stats.name, safe='')
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435: \u043d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_creator_custom:{qname}")],
