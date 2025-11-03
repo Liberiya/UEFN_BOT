@@ -554,17 +554,78 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
 
 def stats_home_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001F4CA EPIC vs UGC", callback_data="stats:epicugc")],
-        [InlineKeyboardButton("\U0001F9F1 Build vs Zero Build", callback_data="stats:bz")],
-        [InlineKeyboardButton("\U0001F3C6 Ranked vs Non-Ranked", callback_data="stats:ranked")],
-        [InlineKeyboardButton("\U0001F3AD \u0416\u0430\u043d\u0440\u044b (Top)", callback_data="stats:genres")],
+        [InlineKeyboardButton("\U0001F525 Popular Releases (7d)", callback_data="stats:popular")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
 
+def try_get_popular_releases_week(ttl_sec: int = 300, limit: int = 10):
+    key = "popular_releases"
+    try:
+        entry = _COUNTS_CACHE.get(key) or {}
+        ts = entry.get("ts")
+        if isinstance(ts, (int, float)) and (time.time() - float(ts) < ttl_sec):
+            return entry.get("val")
+    except Exception:
+        pass
+    try:
+        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+        r = sc.get("https://fortnite.gg/player-count", timeout=15)
+        soup = BeautifulSoup(r.text, 'lxml')
+        anchor = soup.find(string=re.compile(r"popular\s+releases", re.I))
+        container = None
+        if anchor:
+            cur = anchor.parent
+            for _ in range(8):
+                if not cur: break
+                if len(list(cur.select("a[href*='/island?']"))) > 0:
+                    container = cur
+                    break
+                cur = cur.parent
+        if not container:
+            container = soup
+        items = []
+        for a in container.select("a[href*='/island?']"):
+            href = a.get("href")
+            name = a.get_text(" ", strip=True)
+            code = None
+            try:
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(href).query)
+                code = qs.get("code", [None])[0]
+            except Exception:
+                pass
+            around = " ".join((a.parent.get_text(" ", strip=True) if a.parent else name).split())
+            m = re.findall(r"\d+", around.replace(",",""))
+            now = int(m[0]) if m else None
+            items.append({"name": name, "code": code, "href": ("https://fortnite.gg" + href if href and href.startswith("/") else href), "now": now})
+            if len(items) >= limit:
+                break
+        _COUNTS_CACHE[key] = {"ts": time.time(), "val": items}
+        return items
+    except Exception:
+        return []
+
+async def send_stats_popular_releases(target_message):
+    items = try_get_popular_releases_week() or []
+    def fmtn(v):
+        return f"{int(v):,}".replace(","," ") if isinstance(v, int) else "?"
+    lines = []
+    for it in items:
+        name = esc(it.get("name"))
+        href = esc(it.get("href")) if it.get("href") else None
+        now = it.get("now")
+        if href:
+            lines.append(f"• <a href='{href}'><b>{name}</b></a>" + (f"\n👥 Now: <b>{fmtn(now)}</b>" if now is not None else ""))
+        else:
+            lines.append(f"• <b>{name}</b>" + (f"\n👥 Now: <b>{fmtn(now)}</b>" if now is not None else ""))
+    text = "<b>Popular Releases (7d)</b>\n" + ("\n\n".join(lines) if lines else "Нет данных") + "\n\n<i>Источник: fortnite.gg/player-count</i>"
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="stats:home")], [InlineKeyboardButton("🏠 Главная", callback_data="nav_home")]])
+    await send_one(target_message, text=text, reply_markup=kb)
+
 async def send_stats_home(target_message):
     await send_one(target_message, text="\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430 Fortnite (Player Count)", reply_markup=stats_home_kb())
-
-async def send_stats_epicugc(target_message):
+async def send_stats_home(target_message):
+    await send_one(target_message, text="Player Count — выбор раздела:", reply_markup=stats_home_kb())
     sp = try_get_epic_ugc_split() or {}
     epic_now = sp.get("epic_now")
     ugc_now = sp.get("ugc_now")
@@ -1007,6 +1068,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "stats:home":
         await q.answer()
         await send_stats_home(q.message)
+    if data == "stats:popular":
+        await q.answer()
+        await send_stats_popular_releases(q.message)
         return
     if data == "stats:epicugc":
         await q.answer()
