@@ -96,6 +96,29 @@ def add_creator_sub(chat_id: int, name: str, thr: int):
     save_json(SUBS_PATH, SUBS)
 
 
+# --- Growth alert helpers (delta over window minutes) ---
+def add_map_growth_sub(chat_id: int, code: str, delta: int, window_min: int):
+    b = subs_bucket(chat_id)["maps"]
+    for s in b:
+        if s.get("code") == code:
+            s.update({"growth_delta": int(delta), "growth_window": int(window_min)})
+            save_json(SUBS_PATH, SUBS)
+            return
+    b.append({"code": code, "growth_delta": int(delta), "growth_window": int(window_min)})
+    save_json(SUBS_PATH, SUBS)
+
+
+def add_creator_growth_sub(chat_id: int, name: str, delta: int, window_min: int):
+    b = subs_bucket(chat_id)["creators"]
+    for s in b:
+        if s.get("name") == name:
+            s.update({"growth_delta": int(delta), "growth_window": int(window_min)})
+            save_json(SUBS_PATH, SUBS)
+            return
+    b.append({"name": name, "growth_delta": int(delta), "growth_window": int(window_min)})
+    save_json(SUBS_PATH, SUBS)
+
+
 def esc(s: Optional[str]) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -713,6 +736,7 @@ async def send_map_card(target_message, ident: str):
     qcode = up.quote(code, safe='')
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001F4CB \u041a\u043e\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
+        [InlineKeyboardButton("\U0001F514 \u041e\u0442 75", callback_data=f"alert_map_fixed:{qcode}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043e\u0441\u0442", callback_data=f"alert_map_growth:{qcode}")],
         [InlineKeyboardButton("\U0001F514 Уведомление: настроить порог", callback_data=f"alert_map_custom:{qcode}")],
         [InlineKeyboardButton("\u23F0 \u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0442\u044c \u043a\u0430\u0436\u0434\u044b\u0435 4 \u0434\u043d\u044f", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041e\u0431\u043d\u043e\u0432\u0438\u043b", callback_data=f"updmark:{qcode}")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
@@ -752,6 +776,7 @@ async def send_creator_card(target_message, ident: str):
     )
     qname = up.quote(stats.name, safe='')
     kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("\U0001F514 \u041e\u0442 75", callback_data=f"alert_creator_fixed:{qname}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043e\u0441\u0442", callback_data=f"alert_creator_growth:{qname}")],
         [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435: \u043d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u043e\u0440\u043e\u0433", callback_data=f"alert_creator_custom:{qname}")],
         [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
     ])
@@ -766,16 +791,26 @@ async def alerts_list_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("\n\u041a\u0430\u0440\u0442\u044b:")
         for s in b["maps"]:
             code = s.get("code") or ""
-            thr = s.get("threshold")
-            lines.append(f"\u2022 {esc(code)} \u2014 \u043f\u043e\u0440\u043e\u0433 {thr}")
+            parts = []
+            if s.get("threshold") is not None:
+                parts.append(f"\u043f\u043e\u0440\u043e\u0433 {s.get('threshold')}")
+            if s.get("growth_delta") is not None and s.get("growth_window") is not None:
+                parts.append(f"\u0440\u043e\u0441\u0442 +{s.get('growth_delta')} / {s.get('growth_window')}\u043c")
+            meta = ("; ".join(parts)) or "\u043d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u043e"
+            lines.append(f"\u2022 {esc(code)} \u2014 {meta}")
             code_q = up.quote(code, safe='')
             rows.append([InlineKeyboardButton(text=f"\U0001F5FA\uFE0F {esc(code)}", callback_data=f"open_map:{code_q}")])
     if b["creators"]:
         lines.append("\n\u041a\u0440\u0435\u0430\u0442\u043e\u0440\u044b:")
         for s in b["creators"]:
             name = s.get("name") or ""
-            thr = s.get("threshold")
-            lines.append(f"\u2022 {esc(name)} \u2014 \u043f\u043e\u0440\u043e\u0433 {thr}")
+            parts = []
+            if s.get("threshold") is not None:
+                parts.append(f"\u043f\u043e\u0440\u043e\u0433 {s.get('threshold')}")
+            if s.get("growth_delta") is not None and s.get("growth_window") is not None:
+                parts.append(f"\u0440\u043e\u0441\u0442 +{s.get('growth_delta')} / {s.get('growth_window')}\u043c")
+            meta = ("; ".join(parts)) or "\u043d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u043e"
+            lines.append(f"\u2022 {esc(name)} \u2014 {meta}")
             name_q = up.quote(name, safe='')
             rows.append([InlineKeyboardButton(text=f"\U0001F464 {esc(name)}", callback_data=f"open_creator:{name_q}")])
     rows.append([InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044f", callback_data="nav_home")])
@@ -884,6 +919,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {code} \u2265 {thr}")
         await send_map_card(q.message, code)
         return
+    if data.startswith("alert_map_fixed:"):
+        _, code_enc, thr = data.split(":", 2)
+        code = up.unquote(code_enc)
+        add_map_sub(update.effective_chat.id, code, int(thr))
+        await q.answer(f"OK: {code} \u2265 {thr}")
+        await send_map_card(q.message, code)
+        return
     if data.startswith("alert_map_custom:"):
         _, code_enc = data.split(":", 1)
         code = up.unquote(code_enc)
@@ -896,6 +938,31 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = up.unquote(name_enc)
         add_creator_sub(update.effective_chat.id, name, int(thr))
         await q.answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {name} \u2265 {thr}")
+        await send_creator_card(q.message, name)
+        return
+    if data.startswith("alert_creator_fixed:"):
+        _, name_enc, thr = data.split(":", 2)
+        name = up.unquote(name_enc)
+        add_creator_sub(update.effective_chat.id, name, int(thr))
+        await q.answer(f"OK: {name} \u2265 {thr}")
+        await send_creator_card(q.message, name)
+        return
+    if data.startswith("alert_map_growth:"):
+        _, code_enc = data.split(":", 1)
+        code = up.unquote(code_enc)
+        delta = int(os.getenv("BOT_GROWTH_DELTA", "25"))
+        window_min = int(os.getenv("BOT_GROWTH_WINDOW", "15"))
+        add_map_growth_sub(update.effective_chat.id, code, delta, window_min)
+        await q.answer(f"OK: рост +{delta} за {window_min} мин")
+        await send_map_card(q.message, code)
+        return
+    if data.startswith("alert_creator_growth:"):
+        _, name_enc = data.split(":", 1)
+        name = up.unquote(name_enc)
+        delta = int(os.getenv("BOT_GROWTH_DELTA", "25"))
+        window_min = int(os.getenv("BOT_GROWTH_WINDOW", "15"))
+        add_creator_growth_sub(update.effective_chat.id, name, delta, window_min)
+        await q.answer(f"OK: рост +{delta} за {window_min} мин")
         await send_creator_card(q.message, name)
         return
     if data.startswith("alert_creator_custom:"):
