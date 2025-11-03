@@ -167,6 +167,29 @@ def _toint(txt: Optional[str]) -> Optional[int]:
     ds = re.findall(r"\d+", str(txt).replace(",", ""))
     return int("".join(ds)) if ds else None
 
+def _toint_abbrev(txt: Optional[str]) -> Optional[int]:
+    """Parse numbers like 462.2K, 1.3M, 987 into int."""
+    if not txt:
+        return None
+    s = str(txt).strip().replace(',', '')
+    m = re.match(r"(?i)^([0-9]+(?:\.[0-9]+)?)\s*([KMB]?)$", s)
+    if not m:
+        # fallback to digits-only
+        return _toint(txt)
+    val = float(m.group(1))
+    suf = (m.group(2) or '').upper()
+    mult = 1
+    if suf == 'K':
+        mult = 1_000
+    elif suf == 'M':
+        mult = 1_000_000
+    elif suf == 'B':
+        mult = 1_000_000_000
+    try:
+        return int(val * mult)
+    except Exception:
+        return None
+
 
 # -------------------- Counts helpers (Fortnite / UEFN) --------------------
 _COUNTS_CACHE: Dict[str, Dict[str, Optional[int]]] = {
@@ -226,19 +249,111 @@ def try_get_uefn_players_total(max_pages: int = 3, hide_epic: bool = True, ttl_s
     _cache_set("uefn", total)
     return total
 
+def try_get_epic_ugc_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[float]]]:
+    """Return dict with epic_now, ugc_now, epic_pct, ugc_pct from creative stats card.
+
+    Parses the 'EPIC VS UGC' panel on fortnite.gg/creative.
+    """
+    key = "split"
+    # store as floats to allow pct as float
+    try:
+        entry = _COUNTS_CACHE.get(key) or {}
+        ts = entry.get("ts")
+        if isinstance(ts, (int, float)) and (time.time() - float(ts) < ttl_sec):
+            return entry.get("val")  # type: ignore
+    except Exception:
+        pass
+
+    try:
+        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+        r = sc.get("https://fortnite.gg/creative", timeout=15)
+        soup = BeautifulSoup(r.text, 'lxml')
+        # Find the card by title text
+        anchor = soup.find(string=re.compile(r"EPIC\s+VS\s+UGC", re.I))
+        container = None
+        if anchor:
+            # Walk up a few levels to get a block with both Epic and UGC
+            cur = anchor.parent
+            for _ in range(6):
+                if not cur:
+                    break
+                txt = ' '.join(cur.stripped_strings).lower()
+                if 'epic' in txt and 'ugc' in txt and '%' in txt:
+                    container = cur
+                    break
+                cur = cur.parent
+        if not container:
+            container = soup
+
+        # Stream tokens in order and bind to labels
+        tokens = list(container.stripped_strings)
+        last_pct = None
+        last_num = None
+        epic = {"pct": None, "now": None}
+        ugc = {"pct": None, "now": None}
+        for t in tokens:
+            ts = t.strip()
+            # percentage
+            mp = re.match(r"^([0-9]+(?:\.[0-9]+)?)%$", ts)
+            if mp:
+                try:
+                    last_pct = float(mp.group(1))
+                except Exception:
+                    last_pct = None
+                continue
+            # numbers with possible K/M suffix
+            mn = re.match(r"^(?:[0-9]+(?:\.[0-9]+)?)(?:[KMkm])?$", ts.replace(',', ''))
+            if mn:
+                v = _toint_abbrev(ts)
+                if v is not None:
+                    last_num = v
+                continue
+            # labels
+            low = ts.lower()
+            if low == 'epic':
+                if last_pct is not None:
+                    epic["pct"] = last_pct
+                if last_num is not None:
+                    epic["now"] = last_num
+                last_pct = None
+                last_num = None
+                continue
+            if low == 'ugc':
+                if last_pct is not None:
+                    ugc["pct"] = last_pct
+                if last_num is not None:
+                    ugc["now"] = last_num
+                last_pct = None
+                last_num = None
+                continue
+
+        # Build result and cache
+        res = {
+            "epic_now": epic["now"],
+            "ugc_now": ugc["now"],
+            "epic_pct": epic["pct"],
+            "ugc_pct": ugc["pct"],
+        }
+        _COUNTS_CACHE[key] = {"ts": time.time(), "val": res}  # type: ignore
+        return res
+    except Exception:
+        return None
+
 
 def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     # Live totals (with small cache to avoid frequent requests)
     total_global = try_get_fortnite_players_total(ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180")))
-    # UEFN total = sum of players across most-played Creative pages (approximation)
-    # Respect hide_epic preference for the notion of "UEFN-only" maps
+    # Prefer official EPIC vs UGC split from creative stats; fallback to summed listing
     s = chat_settings(chat_id)
     hide_epic = bool(s.get("hide_epic", True))
-    uefn_total = try_get_uefn_players_total(
-        max_pages=int(os.getenv("BOT_UEFN_PAGES", "3")),
-        hide_epic=hide_epic,
-        ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180")),
-    )
+    split = try_get_epic_ugc_split(ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180"))) or {}
+    uefn_total = split.get("ugc_now") if isinstance(split.get("ugc_now"), int) else None
+    if uefn_total is None:
+        uefn_total = try_get_uefn_players_total(
+            max_pages=int(os.getenv("BOT_UEFN_PAGES", "3")),
+            hide_epic=hide_epic,
+            ttl_sec=int(os.getenv("BOT_COUNTS_TTL", "180")),
+        )
 
     maps_count = len(SUBS.get(str(chat_id), {}).get("maps", []))
     creators_count = len(SUBS.get(str(chat_id), {}).get("creators", []))
@@ -250,7 +365,9 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
         return f"{int(n):,}".replace(",", " ")
 
     sub_label = f"\U0001F514 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 ({subs_count})"
-    total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}"
+    pct = split.get("ugc_pct") if isinstance(split, dict) else None
+    pct_txt = f" ({pct:.1f}%)" if isinstance(pct, (int, float)) else ""
+    total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}{pct_txt}"
 
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(total_label, url="https://fortnite.gg/player-count")],
