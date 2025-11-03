@@ -774,6 +774,78 @@ async def send_map_card(target_message, ident: str):
     await send_one(target_message, text=text, reply_markup=kb, photo=getattr(det, 'image', None))
 
 
+# override: improved map card (airier, RU labels, no tags)
+async def send_map_card(target_message, ident: str):
+    s = FortniteGGCreativeScraper()
+    det = s.fetch_island_details(ident)
+
+    name = esc(det.name)
+    code = det.code or ""
+    pn_raw = det.players_now_text or ""
+    p24_raw = det.peak_24h_text or ""
+    ap_raw = det.all_time_peak_text or ""
+    pn = esc(pn_raw)
+
+    # Updated / Release from stats overview
+    upd_text = None
+    rel_text = None
+    try:
+        so = getattr(det, 'stats_overview', {}) or {}
+        for k, v in so.items():
+            if isinstance(k, str) and ('updated' in k.lower() or 'update' in k.lower()):
+                upd_text = v
+                break
+        for k, v in so.items():
+            if isinstance(k, str) and 'release' in k.lower():
+                rel_text = v
+                break
+    except Exception:
+        pass
+
+    # Extract readable date from all-time peak text
+    ap_date = None
+    try:
+        m = re.search(r"([A-Za-z]{3,}\s+\d{1,2},\s+\d{4})", ap_raw or "")
+        if not m:
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", ap_raw or "")
+        ap_date = m.group(1) if m else None
+    except Exception:
+        ap_date = None
+
+    url = f"https://fortnite.gg/island?code={code}" if code else "https://fortnite.gg/creative"
+    lines = [
+        f"<b><a href=\"{url}\">{name}</a></b>",
+        f"<code>{esc(code)}</code>",
+        "",
+        f"\U0001F465 \u041E\u043D\u043B\u0430\u0439\u043D: <b>{pn}</b>",
+    ]
+    val24 = _toint(p24_raw)
+    if val24 is not None:
+        lines.append(f"\U0001F4C8 \u041F\u0438\u043A 24\u0447: <b>{val24}</b>")
+    if ap_date:
+        lines.append(f"\U0001F3C6 \u041F\u0438\u043A \u0437\u0430 \u0432\u0441\u0451 \u0432\u0440\u0435\u043C\u044F: {esc(ap_date)}")
+
+    if upd_text or rel_text:
+        lines.append("")
+        parts = []
+        if upd_text:
+            parts.append(f"\u23F2\uFE0F \u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E: {esc(str(upd_text))}")
+        if rel_text:
+            parts.append(f"\U0001F4C5 \u0414\u0430\u0442\u0430 \u0440\u0435\u043B\u0438\u0437\u0430: {esc(str(rel_text))}")
+        lines.append("  |  ".join(parts))
+
+    text = "\n".join(lines)
+
+    qcode = up.quote(code, safe='')
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("\U0001F4CB \u041A\u043E\u0434", callback_data=f"copy_code:{qcode}" if code else "noop")],
+        [InlineKeyboardButton("\U0001F514 \u041E\u0442 75", callback_data=f"alert_map_fixed:{qcode}:75"), InlineKeyboardButton("\U0001F4C8 \u0420\u043E\u0441\u0442", callback_data=f"alert_map_growth:{qcode}")],
+        [InlineKeyboardButton("\U0001F514 \u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u0435: \u043D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043F\u043E\u0440\u043E\u0433", callback_data=f"alert_map_custom:{qcode}")],
+        [InlineKeyboardButton("\u23F0 \u041D\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u0442\u044C \u043A\u0430\u0436\u0434\u044B\u0435 4 \u0434\u043D\u044F", callback_data=f"updremind:{qcode}:4"), InlineKeyboardButton("\u2705 \u041E\u0431\u043D\u043E\u0432\u0438\u043B", callback_data=f"updmark:{qcode}")],
+        [InlineKeyboardButton("\U0001F3E0 \u0413\u043B\u0430\u0432\u043D\u0430\u044F", callback_data="nav_home")],
+    ])
+    await send_one(target_message, text=text, reply_markup=kb, photo=getattr(det, 'image', None))
+
 async def creator_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await send_one(update.effective_message, text="\u0423\u043a\u0430\u0436\u0438\u0442\u0435 \u0438\u043c\u044f \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443: https://fortnite.gg/creator?name=\u2026", reply_markup=home_kb())
