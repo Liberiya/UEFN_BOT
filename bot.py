@@ -62,6 +62,20 @@ def set_setting(chat_id: int, key: str, value: object) -> None:
     save_json(STATE_PATH, STATE)
 
 
+# -------------------- Threshold input (one-shot) --------------------
+def set_pending_threshold(chat_id: int, target: str, ident: str) -> None:
+    s = chat_settings(chat_id)
+    s["await_thr"] = {"target": target, "id": ident}
+    save_json(STATE_PATH, STATE)
+
+
+def pop_pending_threshold(chat_id: int):
+    s = chat_settings(chat_id)
+    val = s.pop("await_thr", None)
+    save_json(STATE_PATH, STATE)
+    return val
+
+
 def subs_bucket(chat_id: int):
     key = str(chat_id)
     if key not in SUBS:
@@ -191,7 +205,7 @@ def _toint(txt: Optional[str]) -> Optional[int]:
     return int("".join(ds)) if ds else None
 
 def _toint_abbrev(txt: Optional[str]) -> Optional[int]:
-    """Parse numbers like 462.2K, 1.3M, 987 into int."""
+    # Parse numbers like 462.2K, 1.3M, 987
     if not txt:
         return None
     s = str(txt).strip().replace(',', '')
@@ -273,10 +287,7 @@ def try_get_uefn_players_total(max_pages: int = 3, hide_epic: bool = True, ttl_s
     return total
 
 def try_get_epic_ugc_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[float]]]:
-    """Return dict with epic_now, ugc_now, epic_pct, ugc_pct from creative stats card.
-
-    Parses the 'EPIC VS UGC' panel on fortnite.gg/creative.
-    """
+    # Return dict with epic_now, ugc_now, epic_pct, ugc_pct from player-count stats card.
     key = "split"
     # store as floats to allow pct as float
     try:
@@ -819,6 +830,32 @@ async def alerts_list_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = (update.message.text or '').strip()
+    # One-shot threshold input flow
+    try:
+        pend = chat_settings(update.effective_chat.id).get('await_thr')
+        if isinstance(pend, dict) and t and re.fullmatch(r'\d{1,6}', t):
+            thr = int(t)
+            target = str(pend.get('target'))
+            ident = str(pend.get('id'))
+            if target == 'map':
+                add_map_sub(update.effective_chat.id, ident, thr)
+                await update.message.reply_text(
+                    f"OK. Порог для карты <code>{esc(ident)}</code>: <b>{thr}</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+            elif target == 'creator':
+                add_creator_sub(update.effective_chat.id, ident, thr)
+                await update.message.reply_text(
+                    f"OK. Порог для креатора <b>{esc(ident)}</b>: <b>{thr}</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+            pop_pending_threshold(update.effective_chat.id)
+            return
+    except Exception:
+        pass
+
+async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     t = (update.message.text or "").strip()
     if "fortnite.gg/island?code=" in t or (len(t) == 14 and t.count("-") == 2 and t.replace('-', '').isdigit()):
         await send_map_card(update.message, t)
@@ -929,6 +966,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("alert_map_custom:"):
         _, code_enc = data.split(":", 1)
         code = up.unquote(code_enc)
+        set_pending_threshold(update.effective_chat.id, "map", code)
         # Покажем всплывающую подсказку, не удаляя текущую карточку
         await q.answer(text=f"Введите команду:\n/alert_add {code} <порог>", show_alert=True)
         return
@@ -969,6 +1007,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, name_enc = data.split(":", 1)
         name = up.unquote(name_enc)
         # Всплывающее окно с инструкцией, карточка остаётся на месте
+        set_pending_threshold(update.effective_chat.id, "creator", name)
         await q.answer(text=f"Введите команду:\n/alertc_add {name} <порог>", show_alert=True)
         return
 
