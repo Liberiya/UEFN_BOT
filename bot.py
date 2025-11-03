@@ -340,6 +340,145 @@ def try_get_epic_ugc_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[fl
     except Exception:
         return None
 
+def _parse_split_from_player_count(title_regex: str, left_label: str, right_label: str, cache_key: str, ttl_sec: int = 180) -> Optional[Dict[str, Optional[float]]]:
+    try:
+        entry = _COUNTS_CACHE.get(cache_key) or {}
+        ts = entry.get("ts")
+        if isinstance(ts, (int, float)) and (time.time() - float(ts) < ttl_sec):
+            return entry.get("val")  # type: ignore
+    except Exception:
+        pass
+    try:
+        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+        r = sc.get("https://fortnite.gg/player-count", timeout=15)
+        soup = BeautifulSoup(r.text, 'lxml')
+        anchor = soup.find(string=re.compile(title_regex, re.I))
+        container = None
+        if anchor:
+            cur = anchor.parent
+            for _ in range(6):
+                if not cur:
+                    break
+                txt = ' '.join(cur.stripped_strings).lower()
+                if left_label.lower() in txt and right_label.lower() in txt and '%' in txt:
+                    container = cur
+                    break
+                cur = cur.parent
+        if not container:
+            container = soup
+        tokens = list(container.stripped_strings)
+        last_pct = None
+        last_num = None
+        left = {"pct": None, "now": None}
+        right = {"pct": None, "now": None}
+        for t in tokens:
+            ts = t.strip()
+            mp = re.match(r"^([0-9]+(?:\.[0-9]+)?)%$", ts)
+            if mp:
+                try:
+
+# -------------------- Stats menus --------------------
+                    last_pct = float(mp.group(1))
+                except Exception:
+                    last_pct = None
+                continue
+            mn = re.match(r"^(?:[0-9]+(?:\.[0-9]+)?)(?:[KMkm])?$", ts.replace(',', ''))
+            if mn:
+                v = _toint_abbrev(ts)
+                if v is not None:
+                    last_num = v
+                continue
+            low = ts.lower()
+            if low == left_label.lower():
+                if last_pct is not None:
+                    left["pct"] = last_pct
+                if last_num is not None:
+                    left["now"] = last_num
+                last_pct = None
+                last_num = None
+                continue
+            if low == right_label.lower():
+                if last_pct is not None:
+                    right["pct"] = last_pct
+                if last_num is not None:
+                    right["now"] = last_num
+                last_pct = None
+                last_num = None
+                continue
+        res = {
+            f"{left_label.lower()}_now": left["now"],
+            f"{right_label.lower()}_now": right["now"],
+            f"{left_label.lower()}_pct": left["pct"],
+            f"{right_label.lower()}_pct": right["pct"],
+        }
+        _COUNTS_CACHE[cache_key] = {"ts": time.time(), "val": res}  # type: ignore
+        return res
+    except Exception:
+        return None
+
+def try_get_build_zero_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[float]]]:
+    return _parse_split_from_player_count(r"BUILD\s+VS\s+ZERO\s+BUILD", "Build", "Zero Build", cache_key="split_bz", ttl_sec=ttl_sec)
+
+def try_get_ranked_nonranked_split(ttl_sec: int = 180) -> Optional[Dict[str, Optional[float]]]:
+    return _parse_split_from_player_count(r"RANKED\s+VS\s+NON-?RANKED", "Ranked", "Non-Ranked", cache_key="split_ranked", ttl_sec=ttl_sec)
+
+def try_get_genres_top(ttl_sec: int = 300, limit: int = 10) -> Optional[List[Dict[str, object]]]:
+    key = "genres"
+    try:
+        entry = _COUNTS_CACHE.get(key) or {}
+        ts = entry.get("ts")
+        if isinstance(ts, (int, float)) and (time.time() - float(ts) < ttl_sec):
+            return entry.get("val")  # type: ignore
+    except Exception:
+        pass
+    try:
+        sc = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+        r = sc.get("https://fortnite.gg/player-count", timeout=15)
+        soup = BeautifulSoup(r.text, 'lxml')
+        anchor = soup.find(string=re.compile(r"MOST\s+PLAYED\s+GENRES", re.I))
+        container = None
+        if anchor:
+            cur = anchor.parent
+            for _ in range(6):
+                if not cur:
+                    break
+                # Heuristic: list with many numbers and genre-like labels
+                txt = ' '.join(cur.stripped_strings)
+                if len(re.findall(r"\d", txt)) > 10:
+                    container = cur
+                    break
+                cur = cur.parent
+        if not container:
+            container = soup
+        # Collect pairs: take lines alternating NAME then NUMBER
+        items: List[Dict[str, object]] = []
+        name_hold = None
+        for ts in container.stripped_strings:
+            s = ts.strip()
+            if not name_hold:
+                # Skip obvious headers
+                if re.search(r"players?\s+now", s, re.I):
+                    continue
+                if len(s) <= 22 and not re.search(r"%|/|\\|:|,", s):
+                    name_hold = s
+                    continue
+            else:
+                val = _toint_abbrev(s)
+                if val is not None:
+                    items.append({"name": name_hold, "now": int(val)})
+                    name_hold = None
+                    if len(items) >= limit:
+                        break
+                else:
+                    # reset if not a number
+                    name_hold = None
+        if not items:
+            return None
+        _COUNTS_CACHE[key] = {"ts": time.time(), "val": items}  # type: ignore
+        return items
+    except Exception:
+        return None
+
 
 def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     # Live totals (with small cache to avoid frequent requests)
@@ -371,11 +510,94 @@ def build_home_kb_dynamic(chat_id: int) -> InlineKeyboardMarkup:
     total_label = f"\U0001F4C8 Fortnite: {fmt(total_global)} | UEFN: {fmt(uefn_total)}{pct_txt}"
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(total_label, url="https://fortnite.gg/player-count")],
+        [InlineKeyboardButton(total_label, callback_data="stats:home")],
         [InlineKeyboardButton("\U0001F50E \u041d\u0430\u0439\u0442\u0438 \u043a\u0430\u0440\u0442\u0443", callback_data="start:map"), InlineKeyboardButton("\U0001F464 \u041a\u0440\u0435\u0430\u0442\u043e\u0440", callback_data="start:creator")],
         [InlineKeyboardButton(sub_label, callback_data="start:alerts"), InlineKeyboardButton("\u2699\uFE0F \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", callback_data="start:settings")],
         [InlineKeyboardButton("\U0001F525 \u0422\u043e\u043f 10", callback_data="nav_top:10"), InlineKeyboardButton("\u2753 \u041f\u043e\u043c\u043e\u0449\u044c", callback_data="start:help")],
     ])
+
+# -------------------- Stats menus --------------------
+
+def stats_home_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("\U0001F4CA EPIC vs UGC", callback_data="stats:epicugc")],
+        [InlineKeyboardButton("\U0001F9F1 Build vs Zero Build", callback_data="stats:bz")],
+        [InlineKeyboardButton("\U0001F3C6 Ranked vs Non-Ranked", callback_data="stats:ranked")],
+        [InlineKeyboardButton("\U0001F3AD \u0416\u0430\u043d\u0440\u044b (Top)", callback_data="stats:genres")],
+        [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")],
+    ])
+
+async def send_stats_home(target_message):
+    await send_one(target_message, text="\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0430 Fortnite (Player Count)", reply_markup=stats_home_kb())
+
+async def send_stats_epicugc(target_message):
+    sp = try_get_epic_ugc_split() or {}
+    epic_now = sp.get("epic_now")
+    ugc_now = sp.get("ugc_now")
+    epic_pct = sp.get("epic_pct")
+    ugc_pct = sp.get("ugc_pct")
+    def fmtn(v):
+        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
+    def fmtp(v):
+        return f"{float(v):.1f}%" if isinstance(v, (int, float)) else "?%"
+    text = (
+        f"<b>EPIC vs UGC</b>\n"
+        f"Epic: <b>{fmtp(epic_pct)}</b> ({fmtn(epic_now)})\n"
+        f"UGC: <b>{fmtp(ugc_pct)}</b> ({fmtn(ugc_now)})\n"
+        f"\n<i>Источник: fortnite.gg/player-count</i>"
+    )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")], [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")]])
+    await send_one(target_message, text=text, reply_markup=kb)
+
+async def send_stats_build_zero(target_message):
+    sp = try_get_build_zero_split() or {}
+    build_now = sp.get("build_now")
+    zero_now = sp.get("zero build_now") or sp.get("zero_now")
+    build_pct = sp.get("build_pct")
+    zero_pct = sp.get("zero build_pct") or sp.get("zero_pct")
+    def fmtn(v):
+        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
+    def fmtp(v):
+        return f"{float(v):.1f}%" if isinstance(v, (int, float)) else "?%"
+    text = (
+        f"<b>Build vs Zero Build</b>\n"
+        f"Build: <b>{fmtp(build_pct)}</b> ({fmtn(build_now)})\n"
+        f"Zero Build: <b>{fmtp(zero_pct)}</b> ({fmtn(zero_now)})\n"
+        f"\n<i>Источник: fortnite.gg/player-count</i>"
+    )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")], [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")]])
+    await send_one(target_message, text=text, reply_markup=kb)
+
+async def send_stats_ranked(target_message):
+    sp = try_get_ranked_nonranked_split() or {}
+    ranked_now = sp.get("ranked_now")
+    non_now = sp.get("non-ranked_now") or sp.get("non ranked_now")
+    ranked_pct = sp.get("ranked_pct")
+    non_pct = sp.get("non-ranked_pct") or sp.get("non ranked_pct")
+    def fmtn(v):
+        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
+    def fmtp(v):
+        return f"{float(v):.1f}%" if isinstance(v, (int, float)) else "?%"
+    text = (
+        f"<b>Ranked vs Non-Ranked</b>\n"
+        f"Ranked: <b>{fmtp(ranked_pct)}</b> ({fmtn(ranked_now)})\n"
+        f"Non-Ranked: <b>{fmtp(non_pct)}</b> ({fmtn(non_now)})\n"
+        f"\n<i>Источник: fortnite.gg/player-count</i>"
+    )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")], [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")]])
+    await send_one(target_message, text=text, reply_markup=kb)
+
+async def send_stats_genres(target_message):
+    items = try_get_genres_top(limit=10) or []
+    def fmtn(v):
+        return f"{int(v):,}".replace(",", " ") if isinstance(v, int) else "?"
+    lines = [f"• {esc(str(i.get('name')))} — <b>{fmtn(i.get('now'))}</b>" for i in items]
+    text = (
+        "<b>Most Played Genres</b>\n" + ("\n".join(lines) if lines else "\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445") +
+        "\n\n<i>Источник: fortnite.gg/player-count</i>"
+    )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25C0\uFE0F \u041d\u0430\u0437\u0430\u0434", callback_data="stats:home")], [InlineKeyboardButton("\U0001F3E0 \u0413\u043b\u0430\u0432\u043d\u0430\u044F", callback_data="nav_home")]])
+    await send_one(target_message, text=text, reply_markup=kb)
 
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -569,6 +791,26 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "nav_home":
         kb = build_home_kb_dynamic(update.effective_chat.id)
         await send_one(q.message, text="\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e", reply_markup=kb, photo=get_banner_media())
+        return
+    if data == "stats:home":
+        await q.answer()
+        await send_stats_home(q.message)
+        return
+    if data == "stats:epicugc":
+        await q.answer()
+        await send_stats_epicugc(q.message)
+        return
+    if data == "stats:bz":
+        await q.answer()
+        await send_stats_build_zero(q.message)
+        return
+    if data == "stats:ranked":
+        await q.answer()
+        await send_stats_ranked(q.message)
+        return
+    if data == "stats:genres":
+        await q.answer()
+        await send_stats_genres(q.message)
         return
     if data.startswith("nav_top:"):
         _, lim = data.split(":", 1)
