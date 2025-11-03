@@ -1117,10 +1117,6 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "stats:home":
         await q.answer()
         await send_stats_home(q.message)
-    if data == "stats:popular":
-        await q.answer()
-        await send_stats_popular_releases_rich(q.message)
-        return
     if data == "stats:epicugc":
         await q.answer()
         await send_stats_epicugc(q.message)
