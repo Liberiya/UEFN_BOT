@@ -1099,15 +1099,24 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not q or not q.data:
         return
     data = q.data
+    # Safe answer helper to suppress stale/invalid query errors from Telegram
+    async def _safe_answer(text: Optional[str] = None, **kwargs):
+        try:
+            await q.answer(text=text, **kwargs)
+        except Exception as e:
+            s = str(e).lower()
+            if "query is too old" in s or "query id is invalid" in s:
+                return
+            raise
     if data.startswith("top:"):
         _, off, lim = data.split(":", 2)
-        await q.answer()
+        await _safe_answer()
         await send_top(update.effective_chat.id, q.message, int(off), int(lim))
         return
     if data == "toggle_hideepic":
         s = chat_settings(update.effective_chat.id)
         set_setting(update.effective_chat.id, "hide_epic", not bool(s.get("hide_epic", True)))
-        await q.answer("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u044b")
+        await _safe_answer("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u044b")
         await send_top(update.effective_chat.id, q.message, 0, 10)
         return
     if data == "nav_home":
@@ -1115,39 +1124,39 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_one(q.message, text="\u0413\u043b\u0430\u0432\u043d\u043e\u0435 \u043c\u0435\u043d\u044e", reply_markup=kb, photo=get_banner_media())
         return
     if data == "stats:home":
-        await q.answer()
+        await _safe_answer()
         await send_stats_home(q.message)
     if data == "stats:epicugc":
-        await q.answer()
+        await _safe_answer()
         await send_stats_epicugc(q.message)
         return
     if data == "stats:bz":
-        await q.answer()
+        await _safe_answer()
         await send_stats_build_zero(q.message)
         return
     if data == "stats:ranked":
-        await q.answer()
+        await _safe_answer()
         await send_stats_ranked(q.message)
         return
     if data == "stats:genres":
-        await q.answer()
+        await _safe_answer()
         await send_stats_genres(q.message)
         return
     if data.startswith("nav_top:"):
         _, lim = data.split(":", 1)
-        await q.answer()
+        await _safe_answer()
         await send_top(update.effective_chat.id, q.message, 0, int(lim))
         return
     if data == "start:map":
-        await q.answer()
+        await _safe_answer()
         await send_one(q.message, text="\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u043a\u043e\u0434 1234-5678-9012 \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443 fortnite.gg/island?code=\u2026", reply_markup=home_kb())
         return
     if data == "start:creator":
-        await q.answer()
+        await _safe_answer()
         await send_one(q.message, text="\u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0438\u043c\u044f \u043a\u0440\u0435\u0430\u0442\u043e\u0440\u0430 \u0438\u043b\u0438 \u0441\u0441\u044b\u043b\u043a\u0443 fortnite.gg/creator?name=\u2026", reply_markup=home_kb())
         return
     if data == "start:settings":
-        await q.answer()
+        await _safe_answer()
         s = chat_settings(update.effective_chat.id)
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(("\U0001F513 \u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c Epic" if s.get("hide_epic", True) else "\U0001F512 \u0421\u043a\u0440\u044b\u0432\u0430\u0442\u044c Epic"), callback_data="toggle_hideepic")],
@@ -1156,21 +1165,21 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_one(q.message, text=f"\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438:\n\u2022 Hide Epic: {'ON' if s.get('hide_epic', True) else 'OFF'}", reply_markup=kb)
         return
     if data == "start:help":
-        await q.answer()
+        await _safe_answer()
         await help_cmd(update, context)
         return
     if data == "start:alerts":
-        await q.answer()
+        await _safe_answer()
         await alerts_list_menu(update, context)
         return
     if data.startswith("open_map:"):
         code = up.unquote(data.split(":", 1)[1])
-        await q.answer()
+        await _safe_answer()
         await send_map_card(q.message, code)
         return
     if data.startswith("open_creator:"):
         name = up.unquote(data.split(":", 1)[1])
-        await q.answer()
+        await _safe_answer()
         await send_creator_card(q.message, name)
         return
     # Map alerts
@@ -1178,14 +1187,14 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, code_enc, thr = data.split(":", 2)
         code = up.unquote(code_enc)
         add_map_sub(update.effective_chat.id, code, int(thr))
-        await q.answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {code} \u2265 {thr}")
+        await _safe_answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {code} \u2265 {thr}")
         await send_map_card(q.message, code)
         return
     if data.startswith("alert_map_fixed:"):
         _, code_enc, thr = data.split(":", 2)
         code = up.unquote(code_enc)
         add_map_sub(update.effective_chat.id, code, int(thr))
-        await q.answer(f"OK: {code} \u2265 {thr}")
+        await _safe_answer(f"OK: {code} \u2265 {thr}")
         await send_map_card(q.message, code)
         return
     if data.startswith("alert_map_custom:"):
@@ -1193,21 +1202,21 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = up.unquote(code_enc)
         set_pending_threshold(update.effective_chat.id, "map", code)
         # Покажем всплывающую подсказку, не удаляя текущую карточку
-        await q.answer(text=f"Введите команду:\n/alert_add {code} <порог>", show_alert=True)
+        await _safe_answer(text=f"Введите команду:\n/alert_add {code} <порог>", show_alert=True)
         return
     # Creator alerts
     if data.startswith("alert_creator:"):
         _, name_enc, thr = data.split(":", 2)
         name = up.unquote(name_enc)
         add_creator_sub(update.effective_chat.id, name, int(thr))
-        await q.answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {name} \u2265 {thr}")
+        await _safe_answer(f"\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430: {name} \u2265 {thr}")
         await send_creator_card(q.message, name)
         return
     if data.startswith("alert_creator_fixed:"):
         _, name_enc, thr = data.split(":", 2)
         name = up.unquote(name_enc)
         add_creator_sub(update.effective_chat.id, name, int(thr))
-        await q.answer(f"OK: {name} \u2265 {thr}")
+        await _safe_answer(f"OK: {name} \u2265 {thr}")
         await send_creator_card(q.message, name)
         return
     if data.startswith("alert_map_growth:"):
@@ -1216,7 +1225,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         delta = int(os.getenv("BOT_GROWTH_DELTA", "25"))
         window_min = int(os.getenv("BOT_GROWTH_WINDOW", "15"))
         add_map_growth_sub(update.effective_chat.id, code, delta, window_min)
-        await q.answer(f"OK: рост +{delta} за {window_min} мин")
+        await _safe_answer(f"OK: рост +{delta} за {window_min} мин")
         await send_map_card(q.message, code)
         return
     if data.startswith("alert_creator_growth:"):
@@ -1225,7 +1234,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         delta = int(os.getenv("BOT_GROWTH_DELTA", "25"))
         window_min = int(os.getenv("BOT_GROWTH_WINDOW", "15"))
         add_creator_growth_sub(update.effective_chat.id, name, delta, window_min)
-        await q.answer(f"OK: рост +{delta} за {window_min} мин")
+        await _safe_answer(f"OK: рост +{delta} за {window_min} мин")
         await send_creator_card(q.message, name)
         return
     if data.startswith("alert_creator_custom:"):
@@ -1233,7 +1242,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = up.unquote(name_enc)
         # Всплывающее окно с инструкцией, карточка остаётся на месте
         set_pending_threshold(update.effective_chat.id, "creator", name)
-        await q.answer(text=f"Введите команду:\n/alertc_add {name} <порог>", show_alert=True)
+        await _safe_answer(text=f"Введите команду:\n/alertc_add {name} <порог>", show_alert=True)
         return
 
     # Map update reminder callbacks
@@ -1256,7 +1265,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_json(SUBS_PATH, SUBS)
         except Exception:
             pass
-        await q.answer("\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u043e")
+        await _safe_answer("\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u043e")
         await send_map_card(q.message, code)
         return
     if data.startswith("updmark:"):
@@ -1266,7 +1275,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mark_map_updated_now(update.effective_chat.id, code)
         except NameError:
             pass
-        await q.answer("OK")
+        await _safe_answer("OK")
         await send_one(q.message, text=f"\u2705 \u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e: {esc(code)} \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e. \u041d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 4 \u0434\u043d\u044f.", reply_markup=home_kb())
         
 
